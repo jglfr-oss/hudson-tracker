@@ -123,14 +123,33 @@ function calcDose({ carbs, bg, mealId, ratios }) {
   };
 }
 
-// Storage helper (localStorage, works on Vercel)
-const store = {
+// Ratios stored locally per device (each person can have their own)
+const localStore = {
   get: (k, fallback = null) => {
     try { const v = localStorage.getItem(k); return v === null ? fallback : JSON.parse(v); }
     catch { return fallback; }
   },
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
-  del: (k)    => { try { localStorage.removeItem(k);                } catch {} },
+};
+
+// Shared log stored on server so all devices see the same history
+const sharedLog = {
+  get: async () => {
+    try {
+      const r = await fetch("/api/log-get");
+      if (!r.ok) return [];
+      return await r.json();
+    } catch { return []; }
+  },
+  save: async (log) => {
+    try {
+      await fetch("/api/log-save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ log }),
+      });
+    } catch {}
+  },
 };
 
 // ═══ Atoms ═════════════════════════════════════════════════════════════════
@@ -384,10 +403,10 @@ export default function App() {
   const [lastFetched, setLastFetched] = useState(null);
   const pollRef = useRef();
 
-  // Load persisted data
+  // Load shared log from server + ratios locally per device
   useEffect(() => {
-    setLog(store.get("hud-log", []));
-    setRatios(store.get("hud-ratios", { breakfast: 10, lunch: 12, dinner: 12, snack: 15 }));
+    sharedLog.get().then(setLog);
+    setRatios(localStore.get("hud-ratios", { breakfast: 10, lunch: 12, dinner: 12, snack: 15 }));
   }, []);
 
   // Dexcom polling
@@ -426,7 +445,7 @@ export default function App() {
 
   const saveRatios = (r) => {
     setRatios(r);
-    store.set("hud-ratios", r);
+    localStore.set("hud-ratios", r);
   };
 
   const useDexcomBg = (value) => {
@@ -453,7 +472,7 @@ export default function App() {
     };
     const next = [entry, ...log].slice(0, 100);
     setLog(next);
-    store.set("hud-log", next);
+    sharedLog.save(next);
     setConfirmed(true);
     setTimeout(() => setConfirmed(false), 2500);
   };
@@ -461,7 +480,7 @@ export default function App() {
   const removeEntry = (id) => {
     const next = log.filter(e => e.id !== id);
     setLog(next);
-    store.set("hud-log", next);
+    sharedLog.save(next);
   };
 
   return (
@@ -494,12 +513,39 @@ export default function App() {
             borderRadius:"50%", border:"25px solid rgba(0,180,216,0.06)", pointerEvents:"none" }} />
 
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
-            <div>
+            <div style={{ flex: 1 }}>
               <div style={{ color:C.teal, fontSize:11, fontWeight:800, letterSpacing:2, textTransform:"uppercase" }}>
                 Insulin Tracker
               </div>
-              <div style={{ color:"#fff", fontSize:26, fontWeight:900, lineHeight:1.1, marginTop:4 }}>
-                Hey Hudson 👋
+              <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:4, flexWrap:"wrap" }}>
+                <div style={{ color:"#fff", fontSize:26, fontWeight:900, lineHeight:1.1 }}>
+                  Hey Hudson 👋
+                </div>
+                {/* Live BG in header */}
+                {dex?.value ? (
+                  <div style={{
+                    display:"flex", alignItems:"center", gap:6,
+                    background:"rgba(255,255,255,0.12)",
+                    border:"1.5px solid rgba(255,255,255,0.18)",
+                    borderRadius:30, padding:"5px 14px",
+                  }}>
+                    <div style={{
+                      width:8, height:8, borderRadius:"50%",
+                      background: dex.value < TARGET_LOW ? C.low : dex.value > TARGET_HIGH ? C.high : C.inRange,
+                      boxShadow: `0 0 6px ${dex.value < TARGET_LOW ? C.low : dex.value > TARGET_HIGH ? C.high : C.inRange}`,
+                    }} />
+                    <span style={{ color:"#fff", fontWeight:900, fontSize:20 }}>{dex.value}</span>
+                    <span style={{ color:C.teal, fontWeight:800, fontSize:18 }}>{trendArrow(dex.trend)}</span>
+                    {dex.ageMinutes > 0 && (
+                      <span style={{ color:"rgba(255,255,255,0.45)", fontSize:10, fontWeight:600 }}>{dex.ageMinutes}m</span>
+                    )}
+                  </div>
+                ) : dexLoading ? (
+                  <div style={{
+                    background:"rgba(255,255,255,0.08)", borderRadius:30,
+                    padding:"5px 14px", color:"rgba(255,255,255,0.4)", fontSize:12, fontWeight:600,
+                  }}>📡 Connecting…</div>
+                ) : null}
               </div>
               <div style={{ color:"rgba(255,255,255,0.45)", fontSize:13, marginTop:4 }}>
                 {new Date().toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric" })}
@@ -514,7 +560,7 @@ export default function App() {
                 border: "1.5px solid rgba(255,255,255,0.20)",
                 borderRadius: 12, width: 44, height: 44, cursor: "pointer",
                 fontSize: 20, display: "flex", alignItems: "center",
-                justifyContent: "center", flexShrink: 0, padding: 0,
+                justifyContent: "center", flexShrink: 0, padding: 0, marginLeft: 12,
               }}
             >⚙️</button>
           </div>
@@ -553,13 +599,6 @@ export default function App() {
         </div>
 
         <div style={{ padding:"16px 16px 0" }}>
-          <DexcomBanner
-            data={dex}
-            loading={dexLoading}
-            error={dexError}
-            onUse={useDexcomBg}
-            lastFetched={lastFetched}
-          />
           <QuoteBanner />
         </div>
 
@@ -724,7 +763,7 @@ export default function App() {
                   ))}
                   <div style={{ textAlign:"center", marginTop:8, paddingBottom:20 }}>
                     <Btn variant="danger"
-                      onClick={() => { setLog([]); store.del("hud-log"); }}
+                      onClick={() => { setLog([]); sharedLog.save([]); }}
                       style={{ fontSize:12, padding:"8px 20px" }}>
                       Clear All History
                     </Btn>
