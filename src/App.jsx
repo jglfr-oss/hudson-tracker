@@ -2,16 +2,16 @@ import { useState, useEffect, useRef } from "react";
 
 // ═══ Palette ═══════════════════════════════════════════════════════════════
 const C = {
-  navy:    "#0B2A4A",
-  navyDk:  "#071C32",
-  blue:    "#0076BE",
-  teal:    "#00B4D8",
+  navy:    "#1A0033",   // Ravens deep purple-black
+  navyDk:  "#0D0020",   // darker purple-black
+  blue:    "#9B3FC8",   // Ravens purple accent
+  teal:    "#FFB612",   // Ravens gold
   white:   "#FFFFFF",
-  offWhite:"#F0F6FB",
-  border:  "#D6E8F5",
-  textDk:  "#0B2A4A",
-  textMd:  "#3A5F7D",
-  textLt:  "#7FA8C4",
+  offWhite:"#F5F0FA",   // soft purple-tinted white
+  border:  "#E2D5F0",   // light purple border
+  textDk:  "#1A0033",
+  textMd:  "#5A3A7A",
+  textLt:  "#9B7FBB",
   low:     "#F5A623",
   high:    "#E84040",
   inRange: "#27AE60",
@@ -33,7 +33,7 @@ const DEXCOM_POLL_MS    = 5 * 60 * 1000; // 5 min
 
 // ═══ Quotes ════════════════════════════════════════════════════════════════
 const QUOTES = [
-  { text: "You're stronger than any number on that meter.", attr: "Every single day" },
+  { text: "Mark Andrews plays in the NFL with T1D. You can do anything.", attr: "#89 · Baltimore Ravens" },
   { text: "Managing this takes more courage than most people will ever know.", attr: "Keep going" },
   { text: "Small steps every day add up to something extraordinary.", attr: "One meal at a time" },
   { text: "Diabetes doesn't define you — how you handle it does.", attr: "You've got this" },
@@ -267,7 +267,7 @@ function QuoteBanner() {
   const q = getDailyQuote();
   return (
     <div style={{
-      background: `linear-gradient(135deg, #0D3B65 0%, #0076BE 100%)`,
+      background: `linear-gradient(135deg, #1A0033 0%, #3B0075 60%, #9B3FC8 100%)`,
       borderRadius: 18, padding: "18px 20px", marginBottom: 14,
       boxShadow: "0 4px 20px rgba(0,118,190,0.22)", position: "relative", overflow: "hidden",
     }}>
@@ -277,7 +277,7 @@ function QuoteBanner() {
         fontFamily: "Georgia, serif", userSelect: "none",
       }}>"</div>
       <div style={{ fontSize: 10, fontWeight: 800, color: C.teal, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>
-        ✨ Today's Motivation
+        🏈 Mark Andrews Mode
       </div>
       <div style={{ fontSize: 15, fontWeight: 700, color: "#fff", lineHeight: 1.5, marginBottom: 8 }}>
         "{q.text}"
@@ -504,22 +504,22 @@ export default function App() {
 
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <div style={{
-          background: `linear-gradient(160deg, ${C.navyDk} 0%, ${C.navy} 55%, #0D3B65 100%)`,
+          background: `linear-gradient(160deg, ${C.navyDk} 0%, #200040 40%, #2D0057 100%)`,
           padding: "52px 24px 24px", position: "relative", overflow: "hidden",
         }}>
           <div style={{ position:"absolute", right:-60, top:-60, width:200, height:200,
-            borderRadius:"50%", border:"40px solid rgba(0,180,216,0.10)", pointerEvents:"none" }} />
+            borderRadius:"50%", border:"40px solid rgba(255,182,18,0.12)", pointerEvents:"none" }} />
           <div style={{ position:"absolute", right:30, bottom:-30, width:120, height:120,
-            borderRadius:"50%", border:"25px solid rgba(0,180,216,0.06)", pointerEvents:"none" }} />
+            borderRadius:"50%", border:"25px solid rgba(155,63,200,0.15)", pointerEvents:"none" }} />
 
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
             <div style={{ flex: 1 }}>
               <div style={{ color:C.teal, fontSize:11, fontWeight:800, letterSpacing:2, textTransform:"uppercase" }}>
-                Insulin Tracker
+                🏈 Baltimore Ravens · Insulin Tracker
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:4, flexWrap:"wrap" }}>
                 <div style={{ color:"#fff", fontSize:26, fontWeight:900, lineHeight:1.1 }}>
-                  Hey Hudson 👋
+                  Hey Hudson ⚡
                 </div>
                 {/* Live BG in header */}
                 {dex?.value ? (
@@ -696,7 +696,7 @@ export default function App() {
 
               {/* Dose */}
               <Card style={{
-                background:`linear-gradient(135deg, ${C.navy} 0%, #0D4A80 100%)`,
+                background:`linear-gradient(135deg, #1A0033 0%, #3B0075 100%)`,
                 border:"none", marginBottom:14, position:"relative", overflow:"hidden",
               }}>
                 <div style={{ position:"absolute", right:-30, top:-30, width:130, height:130,
@@ -709,7 +709,7 @@ export default function App() {
                   <div className="pop" key={dose.total} style={{
                     fontSize:64, fontWeight:900, color:"#fff", lineHeight:1,
                   }}>{dose.total}</div>
-                  <div style={{ fontSize:22, color:C.teal, fontWeight:800 }}>units</div>
+                  <div style={{ fontSize:22, color:"#FFB612", fontWeight:800 }}>units</div>
                 </div>
                 <div style={{ display:"flex", gap:8 }}>
                   {[
@@ -733,7 +733,7 @@ export default function App() {
                 {confirmed ? "✓ Logged!" : `Log ${dose.total}u for ${meal?.label}`}
               </Btn>
               <div style={{ textAlign:"center", color:C.textLt, fontSize:11, margin:"10px 0 20px" }}>
-                Always verify with your diabetes care team · Rounds to nearest 0.5u
+                💜 Like #89 — manage it, don't let it manage you · Rounds to nearest 0.5u
               </div>
             </div>
           )}
