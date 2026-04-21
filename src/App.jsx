@@ -33,7 +33,7 @@ const DEXCOM_POLL_MS    = 5 * 60 * 1000; // 5 min
 
 // ═══ Quotes ════════════════════════════════════════════════════════════════
 const QUOTES = [
-  { text: "Mark Andrews plays in the NFL with T1D. You can do anything.", attr: "#89 · Baltimore Ravens" },
+  { text: "Mark Andrews plays in the NFL with T1D. You can do anything.", attr: "#89 · Mark Andrews" },
   { text: "Managing this takes more courage than most people will ever know.", attr: "Keep going" },
   { text: "Small steps every day add up to something extraordinary.", attr: "One meal at a time" },
   { text: "Diabetes doesn't define you — how you handle it does.", attr: "You've got this" },
@@ -515,11 +515,11 @@ export default function App() {
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
             <div style={{ flex: 1 }}>
               <div style={{ color:C.teal, fontSize:11, fontWeight:800, letterSpacing:2, textTransform:"uppercase" }}>
-                🏈 Baltimore Ravens · Insulin Tracker
+                Insulin Tracker
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:4, flexWrap:"wrap" }}>
                 <div style={{ color:"#fff", fontSize:26, fontWeight:900, lineHeight:1.1 }}>
-                  Hey Hudson ⚡
+                  Hey Hudson 🏈
                 </div>
                 {/* Live BG in header */}
                 {dex?.value ? (
