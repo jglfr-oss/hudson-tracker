@@ -264,16 +264,16 @@ function DexcomBanner({ data, loading, error, onUse, lastFetched }) {
 
 // ═══ BG Trend Chart ═════════════════════════════════════════════════════════
 function BGTrendChart({ history }) {
+  const [tooltip, setTooltip] = useState(null); // { x, y, v, time }
+
   if (!history || history.length < 2) return null;
 
   const W = 440, H = 140;
-  const PAD = { top: 12, right: 36, bottom: 24, left: 10 };
+  const PAD = { top: 20, right: 36, bottom: 24, left: 10 };
   const chartW = W - PAD.left - PAD.right;
   const chartH = H - PAD.top - PAD.bottom;
-
   const minBG = 40, maxBG = 320;
 
-  // API returns { ts, value } — use ts field
   const sorted = [...history].sort((a, b) => a.ts - b.ts);
   const minTs  = sorted[0].ts;
   const maxTs  = sorted[sorted.length - 1].ts;
@@ -281,22 +281,42 @@ function BGTrendChart({ history }) {
 
   const xScale = (ts)  => PAD.left + ((ts - minTs) / tsRange) * chartW;
   const yScale = (val) => PAD.top  + chartH - ((Math.min(Math.max(val, minBG), maxBG) - minBG) / (maxBG - minBG)) * chartH;
-
   const dotColor = (v) => v < TARGET_LOW ? "#F5A623" : v > TARGET_HIGH ? "#E84040" : "#4ADE80";
 
   const yHigh = yScale(TARGET_HIGH);
   const yLow  = yScale(TARGET_LOW);
 
-  const pts = sorted.map(r => ({ x: xScale(r.ts), y: yScale(r.value), v: r.value }));
+  const pts = sorted.map(r => ({
+    x: xScale(r.ts), y: yScale(r.value), v: r.value,
+    time: new Date(r.ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+  }));
   const linePath = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
   const latest = pts[pts.length - 1];
 
-  // Time labels: start, middle, end
   const labelIdxs = [0, Math.floor(sorted.length / 2), sorted.length - 1];
   const timeLabels = labelIdxs.map(i => ({
     x: xScale(sorted[i].ts),
     label: new Date(sorted[i].ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
   }));
+
+  // Find closest dot to a touch/click x position (in SVG coords)
+  const handleTouch = (e) => {
+    e.preventDefault();
+    const svg = e.currentTarget;
+    const rect = svg.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const svgX = ((clientX - rect.left) / rect.width) * W;
+    let closest = null, minDist = Infinity;
+    pts.forEach(p => {
+      const d = Math.abs(p.x - svgX);
+      if (d < minDist) { minDist = d; closest = p; }
+    });
+    if (closest && minDist < 30) setTooltip(closest);
+    else setTooltip(null);
+  };
+
+  const tooltipX = tooltip ? Math.min(Math.max(tooltip.x, 30), W - 50) : 0;
+  const tooltipY = tooltip ? Math.max(tooltip.y - 28, PAD.top) : 0;
 
   return (
     <div style={{
@@ -304,51 +324,77 @@ function BGTrendChart({ history }) {
       border: "1px solid rgba(255,255,255,0.10)",
       borderRadius: 16, padding: "10px 12px 6px",
       marginBottom: 0,
-    }}>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block", overflow: "visible" }}>
-
-        {/* In-range shaded zone */}
+    }}
+      onClick={() => setTooltip(null)}
+    >
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        style={{ width: "100%", height: "auto", display: "block", overflow: "visible", touchAction: "none" }}
+        onTouchStart={handleTouch}
+        onTouchMove={handleTouch}
+        onClick={handleTouch}
+      >
+        {/* In-range zone */}
         <rect x={PAD.left} y={yHigh} width={chartW} height={yLow - yHigh}
           fill="rgba(74,222,128,0.10)" rx="2" />
-
-        {/* Range boundary lines */}
         <line x1={PAD.left} y1={yHigh} x2={PAD.left + chartW} y2={yHigh}
           stroke="rgba(74,222,128,0.35)" strokeWidth="1" strokeDasharray="4 3" />
         <line x1={PAD.left} y1={yLow} x2={PAD.left + chartW} y2={yLow}
           stroke="rgba(245,166,35,0.45)" strokeWidth="1" strokeDasharray="4 3" />
-
-        {/* BG range labels */}
         <text x={W - PAD.right + 4} y={yHigh + 4} fontSize="9" fill="rgba(74,222,128,0.8)" fontWeight="700">{TARGET_HIGH}</text>
         <text x={W - PAD.right + 4} y={yLow + 4}  fontSize="9" fill="rgba(245,166,35,0.9)" fontWeight="700">{TARGET_LOW}</text>
 
         {/* Trend line */}
         {pts.length > 1 && (
-          <path d={linePath} fill="none"
-            stroke="rgba(255,255,255,0.20)"
-            strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-          />
+          <path d={linePath} fill="none" stroke="rgba(255,255,255,0.18)"
+            strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         )}
 
-        {/* Dots */}
+        {/* Dots — large invisible hit targets + visible dot */}
         {pts.map((p, i) => (
-          <circle key={i} cx={p.x.toFixed(1)} cy={p.y.toFixed(1)}
-            r={i === pts.length - 1 ? 5 : 3}
-            fill={dotColor(p.v)}
-            stroke={i === pts.length - 1 ? "rgba(255,255,255,0.9)" : "none"}
-            strokeWidth={i === pts.length - 1 ? 2 : 0}
-            opacity={i === pts.length - 1 ? 1 : 0.85}
-          />
+          <g key={i}>
+            <circle cx={p.x.toFixed(1)} cy={p.y.toFixed(1)} r="12" fill="transparent" />
+            <circle
+              cx={p.x.toFixed(1)} cy={p.y.toFixed(1)}
+              r={tooltip?.x === p.x ? 6 : i === pts.length - 1 ? 5 : 3}
+              fill={dotColor(p.v)}
+              stroke={tooltip?.x === p.x ? "#fff" : i === pts.length - 1 ? "rgba(255,255,255,0.9)" : "none"}
+              strokeWidth={tooltip?.x === p.x ? 2.5 : i === pts.length - 1 ? 2 : 0}
+              opacity={0.9}
+            />
+          </g>
         ))}
 
-        {/* Latest value bubble */}
-        {latest && (
-          <text
-            x={Math.min(latest.x, W - PAD.right - 10)}
-            y={latest.y - 9}
-            fontSize="11" fontWeight="900"
-            fill={dotColor(latest.v)}
-            textAnchor="middle"
-          >{latest.v}</text>
+        {/* Latest value label (hidden when tooltip active) */}
+        {latest && !tooltip && (
+          <text x={Math.min(latest.x, W - PAD.right - 10)} y={latest.y - 9}
+            fontSize="11" fontWeight="900" fill={dotColor(latest.v)} textAnchor="middle">
+            {latest.v}
+          </text>
+        )}
+
+        {/* Tooltip bubble */}
+        {tooltip && (
+          <g>
+            <rect
+              x={tooltipX - 28} y={tooltipY - 16}
+              width="56" height="22" rx="8"
+              fill={dotColor(tooltip.v)} opacity="0.95"
+            />
+            <text x={tooltipX} y={tooltipY - 1}
+              fontSize="12" fontWeight="900" fill="#fff"
+              textAnchor="middle" fontFamily="Nunito, sans-serif">
+              {tooltip.v}
+            </text>
+            <text x={tooltipX} y={tooltipY + 18}
+              fontSize="8" fontWeight="700" fill="rgba(255,255,255,0.55)"
+              textAnchor="middle" fontFamily="Nunito, sans-serif">
+              {tooltip.time}
+            </text>
+            {/* Stem */}
+            <line x1={tooltipX} y1={tooltipY + 6} x2={tooltip.x.toFixed(1)} y2={tooltip.y - 7}
+              stroke={dotColor(tooltip.v)} strokeWidth="1.5" opacity="0.6" />
+          </g>
         )}
 
         {/* Time labels */}
@@ -356,8 +402,9 @@ function BGTrendChart({ history }) {
           <text key={i} x={t.x.toFixed(1)} y={H - 3}
             fontSize="9" fill="rgba(255,255,255,0.4)"
             textAnchor={i === 0 ? "start" : i === timeLabels.length - 1 ? "end" : "middle"}
-            fontWeight="600" fontFamily="Nunito, sans-serif"
-          >{t.label}</text>
+            fontWeight="600" fontFamily="Nunito, sans-serif">
+            {t.label}
+          </text>
         ))}
       </svg>
     </div>
@@ -754,10 +801,10 @@ export default function App() {
               <Card style={{ marginBottom:12 }}>
                 <div style={{ fontWeight:800, color:C.textDk, fontSize:15, marginBottom:14 }}>🍽️ Carbohydrates</div>
                 <NumPad value={carbs} onChange={setCarbs} step={5} min={0} max={300} unit="g" />
-                <div style={{ display:"flex", gap:6, justifyContent:"center", marginTop:14, flexWrap:"wrap" }}>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:6, marginTop:14 }}>
                   {[15,30,45,60,75,90].map(v => (
                     <button key={v} type="button" onClick={() => setCarbs(v)} style={{
-                      padding:"5px 12px", borderRadius:20, fontFamily:"inherit",
+                      padding:"6px 0", borderRadius:20, fontFamily:"inherit", textAlign:"center",
                       border: carbs===v ? `2px solid ${C.blue}` : `1.5px solid ${C.border}`,
                       background: carbs===v ? `${C.blue}18` : C.offWhite,
                       color: carbs===v ? C.blue : C.textMd, fontWeight:700, fontSize:13, cursor:"pointer",
