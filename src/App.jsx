@@ -266,96 +266,86 @@ function DexcomBanner({ data, loading, error, onUse, lastFetched }) {
 function BGTrendChart({ history }) {
   if (!history || history.length < 2) return null;
 
-  const W = 440, H = 160;
-  const PAD = { top: 12, right: 36, bottom: 28, left: 10 };
+  const W = 440, H = 140;
+  const PAD = { top: 12, right: 36, bottom: 24, left: 10 };
   const chartW = W - PAD.left - PAD.right;
   const chartH = H - PAD.top - PAD.bottom;
 
-  const now   = Date.now();
-  const start = now - 3 * 60 * 60 * 1000; // 3 hours ago
   const minBG = 40, maxBG = 320;
 
-  const xScale = (ts)  => PAD.left + ((ts - start) / (now - start)) * chartW;
-  const yScale = (val) => PAD.top  + chartH - ((val - minBG) / (maxBG - minBG)) * chartH;
+  // API returns { ts, value } — use ts field
+  const sorted = [...history].sort((a, b) => a.ts - b.ts);
+  const minTs  = sorted[0].ts;
+  const maxTs  = sorted[sorted.length - 1].ts;
+  const tsRange = maxTs - minTs || 1;
 
-  const inRange = (v) => v >= TARGET_LOW && v <= TARGET_HIGH;
-  const dotColor = (v) => v < TARGET_LOW ? C.low : v > TARGET_HIGH ? "#E84040" : "#27AE60";
+  const xScale = (ts)  => PAD.left + ((ts - minTs) / tsRange) * chartW;
+  const yScale = (val) => PAD.top  + chartH - ((Math.min(Math.max(val, minBG), maxBG) - minBG) / (maxBG - minBG)) * chartH;
 
-  // Range band y positions
+  const dotColor = (v) => v < TARGET_LOW ? "#F5A623" : v > TARGET_HIGH ? "#E84040" : "#4ADE80";
+
   const yHigh = yScale(TARGET_HIGH);
   const yLow  = yScale(TARGET_LOW);
 
-  // Build polyline points
-  const pts = history
-    .filter(r => r.timestamp >= start)
-    .map(r => ({ x: xScale(r.timestamp), y: yScale(r.value), v: r.value, ts: r.timestamp }));
-
+  const pts = sorted.map(r => ({ x: xScale(r.ts), y: yScale(r.value), v: r.value }));
   const linePath = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
-
-  // Time labels (every hour)
-  const timeLabels = [];
-  for (let h = 1; h <= 3; h++) {
-    const ts  = now - (3 - h) * 60 * 60 * 1000;
-    const d   = new Date(ts);
-    const lbl = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-    timeLabels.push({ x: xScale(ts), label: lbl });
-  }
-
   const latest = pts[pts.length - 1];
+
+  // Time labels: start, middle, end
+  const labelIdxs = [0, Math.floor(sorted.length / 2), sorted.length - 1];
+  const timeLabels = labelIdxs.map(i => ({
+    x: xScale(sorted[i].ts),
+    label: new Date(sorted[i].ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+  }));
 
   return (
     <div style={{
-      background: C.white, borderRadius: 18, border: `1px solid ${C.border}`,
-      boxShadow: "0 2px 16px rgba(0,0,0,0.06)", padding: "14px 16px 10px", marginBottom: 14,
+      background: "rgba(255,255,255,0.06)",
+      border: "1px solid rgba(255,255,255,0.10)",
+      borderRadius: 16, padding: "10px 12px 6px",
+      marginBottom: 0,
     }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <div style={{ fontWeight: 800, color: C.textDk, fontSize: 14 }}>📈 3-Hour Trend</div>
-        <div style={{ fontSize: 11, color: C.textLt, fontWeight: 600 }}>CGM · Dexcom G7</div>
-      </div>
-
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block", overflow: "visible" }}>
 
         {/* In-range shaded zone */}
-        <rect
-          x={PAD.left} y={yHigh}
-          width={chartW} height={yLow - yHigh}
-          fill="rgba(39,174,96,0.08)" rx="2"
-        />
+        <rect x={PAD.left} y={yHigh} width={chartW} height={yLow - yHigh}
+          fill="rgba(74,222,128,0.10)" rx="2" />
 
         {/* Range boundary lines */}
         <line x1={PAD.left} y1={yHigh} x2={PAD.left + chartW} y2={yHigh}
-          stroke="rgba(39,174,96,0.25)" strokeWidth="1" strokeDasharray="4 3" />
+          stroke="rgba(74,222,128,0.35)" strokeWidth="1" strokeDasharray="4 3" />
         <line x1={PAD.left} y1={yLow} x2={PAD.left + chartW} y2={yLow}
-          stroke="rgba(245,166,35,0.35)" strokeWidth="1" strokeDasharray="4 3" />
+          stroke="rgba(245,166,35,0.45)" strokeWidth="1" strokeDasharray="4 3" />
 
         {/* BG range labels */}
-        <text x={W - PAD.right + 4} y={yHigh + 4} fontSize="9" fill="rgba(39,174,96,0.7)" fontWeight="700">{TARGET_HIGH}</text>
-        <text x={W - PAD.right + 4} y={yLow + 4}  fontSize="9" fill="rgba(245,166,35,0.8)" fontWeight="700">{TARGET_LOW}</text>
+        <text x={W - PAD.right + 4} y={yHigh + 4} fontSize="9" fill="rgba(74,222,128,0.8)" fontWeight="700">{TARGET_HIGH}</text>
+        <text x={W - PAD.right + 4} y={yLow + 4}  fontSize="9" fill="rgba(245,166,35,0.9)" fontWeight="700">{TARGET_LOW}</text>
 
         {/* Trend line */}
         {pts.length > 1 && (
           <path d={linePath} fill="none"
-            stroke={latest ? dotColor(latest.v) : "#9B3FC8"}
-            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-            opacity="0.5"
+            stroke="rgba(255,255,255,0.20)"
+            strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
           />
         )}
 
         {/* Dots */}
         {pts.map((p, i) => (
-          <circle key={i} cx={p.x} cy={p.y} r={i === pts.length - 1 ? 5 : 3}
+          <circle key={i} cx={p.x.toFixed(1)} cy={p.y.toFixed(1)}
+            r={i === pts.length - 1 ? 5 : 3}
             fill={dotColor(p.v)}
-            stroke={i === pts.length - 1 ? "#fff" : "none"}
+            stroke={i === pts.length - 1 ? "rgba(255,255,255,0.9)" : "none"}
             strokeWidth={i === pts.length - 1 ? 2 : 0}
+            opacity={i === pts.length - 1 ? 1 : 0.85}
           />
         ))}
 
-        {/* Latest value label */}
+        {/* Latest value bubble */}
         {latest && (
           <text
-            x={Math.min(latest.x + 8, W - PAD.right - 20)}
-            y={latest.y - 8}
-            fontSize="11" fontWeight="800"
+            x={Math.min(latest.x, W - PAD.right - 10)}
+            y={latest.y - 9}
+            fontSize="11" fontWeight="900"
             fill={dotColor(latest.v)}
             textAnchor="middle"
           >{latest.v}</text>
@@ -363,12 +353,11 @@ function BGTrendChart({ history }) {
 
         {/* Time labels */}
         {timeLabels.map((t, i) => (
-          <g key={i}>
-            <line x1={t.x} y1={PAD.top} x2={t.x} y2={PAD.top + chartH}
-              stroke={C.border} strokeWidth="1" strokeDasharray="3 3" />
-            <text x={t.x} y={H - 4} fontSize="9" fill={C.textLt}
-              textAnchor="middle" fontWeight="600">{t.label}</text>
-          </g>
+          <text key={i} x={t.x.toFixed(1)} y={H - 3}
+            fontSize="9" fill="rgba(255,255,255,0.4)"
+            textAnchor={i === 0 ? "start" : i === timeLabels.length - 1 ? "end" : "middle"}
+            fontWeight="600" fontFamily="Nunito, sans-serif"
+          >{t.label}</text>
         ))}
       </svg>
     </div>
