@@ -646,6 +646,7 @@ export default function App() {
         ::-webkit-scrollbar { display: none; }
         @keyframes pop { 0%{transform:scale(.88);opacity:0} 60%{transform:scale(1.05)} 100%{transform:scale(1);opacity:1} }
         @keyframes slideUp { from{transform:translateY(40px);opacity:0} to{transform:translateY(0);opacity:1} }
+        @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.75;transform:scale(1.04)} }
         .pop { animation: pop .25s ease both; }
         .slideUp { animation: slideUp .3s ease both; }
       `}</style>
@@ -678,29 +679,61 @@ export default function App() {
                 {/* Live BG in header */}
                 {dex?.value ? (() => {
                   const bgColor = dex.value < TARGET_LOW ? "#F5A623" : dex.value > TARGET_HIGH ? "#E84040" : "#4ADE80";
-                  // Arrow color by rate of change
                   const tr = dex.trend;
                   const arrowColor = (tr === 1 || tr === "DoubleUp"   || tr === 7 || tr === "DoubleDown")   ? "#E84040"
                                    : (tr === 2 || tr === "SingleUp"  || tr === 6 || tr === "SingleDown")   ? "#F5A623"
                                    : (tr === 3 || tr === "FortyFiveUp"|| tr === 5 || tr === "FortyFiveDown") ? "#FFD166"
-                                   : "#4ADE80"; // flat
+                                   : "#4ADE80";
+
+                  // Action message logic
+                  const isDoubleDown = tr === 7 || tr === "DoubleDown";
+                  const isSingleDown = tr === 6 || tr === "SingleDown";
+                  const isAngleDown  = tr === 5 || tr === "FortyFiveDown";
+                  const isFlat       = tr === 4 || tr === "Flat";
+                  const dropping     = isDoubleDown || isSingleDown || isAngleDown;
+                  const low90s       = dex.value < 90;
+                  const allWell      = isFlat && dex.value >= 80 && dex.value <= 125;
+
+                  let alert = null;
+                  if (low90s && isDoubleDown) {
+                    alert = { msg: "Drink juice NOW! 🧃", color: "#E84040", pulse: true };
+                  } else if (low90s && (isSingleDown || isAngleDown)) {
+                    alert = { msg: "Consider some Skittles 🍬", color: "#F5A623", pulse: false };
+                  } else if (allWell) {
+                    alert = { msg: "All is well ✅", color: "#4ADE80", pulse: false };
+                  }
+
                   return (
-                    <div style={{
-                      display:"flex", alignItems:"center", gap:8,
-                      background: bgColor + "22",
-                      border: `2px solid ${bgColor}55`,
-                      borderRadius:30, padding:"6px 16px",
-                      boxShadow: `0 0 16px ${bgColor}33`,
-                    }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                      {/* BG Pill */}
                       <div style={{
-                        width:10, height:10, borderRadius:"50%",
-                        background: bgColor,
-                        boxShadow: `0 0 8px ${bgColor}`,
-                      }} />
-                      <span style={{ color:"#fff", fontWeight:900, fontSize:22, letterSpacing:-0.5 }}>{dex.value}</span>
-                      <span style={{ color:arrowColor, fontWeight:900, fontSize:22, lineHeight:1 }}>{trendArrow(dex.trend)}</span>
-                      {dex.ageMinutes > 0 && (
-                        <span style={{ color:"rgba(255,255,255,0.4)", fontSize:10, fontWeight:700 }}>{dex.ageMinutes}m</span>
+                        display:"flex", alignItems:"center", gap:8,
+                        background: bgColor + "22",
+                        border: `2px solid ${bgColor}55`,
+                        borderRadius:30, padding:"6px 16px",
+                        boxShadow: `0 0 16px ${bgColor}33`,
+                      }}>
+                        <div style={{
+                          width:10, height:10, borderRadius:"50%",
+                          background: bgColor,
+                          boxShadow: `0 0 8px ${bgColor}`,
+                        }} />
+                        <span style={{ color:"#fff", fontWeight:900, fontSize:22, letterSpacing:-0.5 }}>{dex.value}</span>
+                        <span style={{ color:arrowColor, fontWeight:900, fontSize:22, lineHeight:1 }}>{trendArrow(dex.trend)}</span>
+                        {dex.ageMinutes > 0 && (
+                          <span style={{ color:"rgba(255,255,255,0.4)", fontSize:10, fontWeight:700 }}>{dex.ageMinutes}m</span>
+                        )}
+                      </div>
+                      {/* Action message */}
+                      {alert && (
+                        <div style={{
+                          fontSize:12, fontWeight:800, color: alert.color,
+                          background: alert.color + "18",
+                          border: `1.5px solid ${alert.color}44`,
+                          borderRadius:20, padding:"4px 12px",
+                          animation: alert.pulse ? "pulse 1s ease-in-out infinite" : "none",
+                          maxWidth: 160, lineHeight: 1.3,
+                        }}>{alert.msg}</div>
                       )}
                     </div>
                   );
