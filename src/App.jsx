@@ -629,28 +629,38 @@ export default function App() {
                   Hey Hudson 🏈
                 </div>
                 {/* Live BG in header */}
-                {dex?.value ? (
-                  <div style={{
-                    display:"flex", alignItems:"center", gap:6,
-                    background:"rgba(255,255,255,0.12)",
-                    border:"1.5px solid rgba(255,255,255,0.18)",
-                    borderRadius:30, padding:"5px 14px",
-                  }}>
+                {dex?.value ? (() => {
+                  const bgColor = dex.value < TARGET_LOW ? "#F5A623" : dex.value > TARGET_HIGH ? "#E84040" : "#4ADE80";
+                  // Arrow color by rate of change
+                  const tr = dex.trend;
+                  const arrowColor = (tr === 1 || tr === "DoubleUp"   || tr === 7 || tr === "DoubleDown")   ? "#E84040"
+                                   : (tr === 2 || tr === "SingleUp"  || tr === 6 || tr === "SingleDown")   ? "#F5A623"
+                                   : (tr === 3 || tr === "FortyFiveUp"|| tr === 5 || tr === "FortyFiveDown") ? "#FFD166"
+                                   : "#4ADE80"; // flat
+                  return (
                     <div style={{
-                      width:8, height:8, borderRadius:"50%",
-                      background: dex.value < TARGET_LOW ? C.low : dex.value > TARGET_HIGH ? C.high : C.inRange,
-                      boxShadow: `0 0 6px ${dex.value < TARGET_LOW ? C.low : dex.value > TARGET_HIGH ? C.high : C.inRange}`,
-                    }} />
-                    <span style={{ color:"#fff", fontWeight:900, fontSize:20 }}>{dex.value}</span>
-                    <span style={{ color:C.teal, fontWeight:800, fontSize:18 }}>{trendArrow(dex.trend)}</span>
-                    {dex.ageMinutes > 0 && (
-                      <span style={{ color:"rgba(255,255,255,0.45)", fontSize:10, fontWeight:600 }}>{dex.ageMinutes}m</span>
-                    )}
-                  </div>
-                ) : dexLoading ? (
+                      display:"flex", alignItems:"center", gap:8,
+                      background: bgColor + "22",
+                      border: `2px solid ${bgColor}55`,
+                      borderRadius:30, padding:"6px 16px",
+                      boxShadow: `0 0 16px ${bgColor}33`,
+                    }}>
+                      <div style={{
+                        width:10, height:10, borderRadius:"50%",
+                        background: bgColor,
+                        boxShadow: `0 0 8px ${bgColor}`,
+                      }} />
+                      <span style={{ color:"#fff", fontWeight:900, fontSize:22, letterSpacing:-0.5 }}>{dex.value}</span>
+                      <span style={{ color:arrowColor, fontWeight:900, fontSize:22, lineHeight:1 }}>{trendArrow(dex.trend)}</span>
+                      {dex.ageMinutes > 0 && (
+                        <span style={{ color:"rgba(255,255,255,0.4)", fontSize:10, fontWeight:700 }}>{dex.ageMinutes}m</span>
+                      )}
+                    </div>
+                  );
+                })() : dexLoading ? (
                   <div style={{
                     background:"rgba(255,255,255,0.08)", borderRadius:30,
-                    padding:"5px 14px", color:"rgba(255,255,255,0.4)", fontSize:12, fontWeight:600,
+                    padding:"6px 16px", color:"rgba(255,255,255,0.4)", fontSize:12, fontWeight:600,
                   }}>📡 Connecting…</div>
                 ) : null}
               </div>
