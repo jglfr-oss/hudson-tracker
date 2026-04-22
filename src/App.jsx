@@ -695,7 +695,9 @@ export default function App() {
                   const allWell      = isFlat && dex.value >= 80 && dex.value <= 125;
 
                   let alert = null;
-                  if (low90s && isDoubleDown) {
+                  if (dex.value < 80) {
+                    alert = { msg: "Juice or Skittles! 🧃🍬", color: "#E84040", pulse: true };
+                  } else if (low90s && isDoubleDown) {
                     alert = { msg: "Drink juice NOW! 🧃", color: "#E84040", pulse: true };
                   } else if (low90s && (isSingleDown || isAngleDown)) {
                     alert = { msg: "Consider some Skittles 🍬", color: "#F5A623", pulse: false };
