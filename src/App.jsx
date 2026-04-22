@@ -683,8 +683,18 @@ export default function App() {
             >⚙️</button>
           </div>
 
+          {/* BG Sparkline */}
+          {history.length > 1 && (
+            <div style={{ marginTop: 16, marginBottom: 4 }}>
+              <div style={{ fontSize: 9, fontWeight: 800, color: "rgba(255,255,255,0.4)", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
+                Last 3 Hours
+              </div>
+              <BGTrendChart history={history} />
+            </div>
+          )}
+
           <div style={{
-            marginTop: 20, background: "rgba(255,255,255,0.07)",
+            marginTop: 12, background: "rgba(255,255,255,0.07)",
             borderRadius: 14, padding: "12px 16px", display: "flex", gap: 28,
           }}>
             {[
