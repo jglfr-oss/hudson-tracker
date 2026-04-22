@@ -498,104 +498,6 @@ function LogRow({ entry, onDelete }) {
 }
 
 
-// ═══ BG Sparkline Chart ═════════════════════════════════════════════════════
-function BGSparkline({ readings }) {
-  if (!readings || readings.length < 2) return null;
-
-  const W = 440, H = 80;
-  const PAD = { top: 8, bottom: 18, left: 4, right: 4 };
-  const LOW = 80, HIGH = 180, MIN_VAL = 40, MAX_VAL = 300;
-
-  const chartW = W - PAD.left - PAD.right;
-  const chartH = H - PAD.top - PAD.bottom;
-
-  const minTs = readings[0].ts;
-  const maxTs = readings[readings.length - 1].ts;
-  const tsRange = maxTs - minTs || 1;
-
-  const xOf = (ts)  => PAD.left + ((ts - minTs) / tsRange) * chartW;
-  const yOf = (val) => PAD.top  + (1 - (Math.min(Math.max(val, MIN_VAL), MAX_VAL) - MIN_VAL) / (MAX_VAL - MIN_VAL)) * chartH;
-
-  const yLow  = yOf(LOW);
-  const yHigh = yOf(HIGH);
-
-  // Build polyline points
-  const points = readings.map(r => `${xOf(r.ts).toFixed(1)},${yOf(r.value).toFixed(1)}`).join(" ");
-
-  // Time labels: show every ~30 min
-  const labelReadings = readings.filter((_, i) => i === 0 || i === readings.length - 1 ||
-    (readings[i].ts - readings[i-1].ts > 25 * 60000));
-
-  const dotColor = (v) => v < LOW ? "#F5A623" : v > HIGH ? "#E84040" : "#4ADE80";
-
-  return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      style={{ width: "100%", height: H, display: "block" }}
-      preserveAspectRatio="none"
-    >
-      {/* In-range band */}
-      <rect
-        x={PAD.left} y={yHigh}
-        width={chartW} height={yLow - yHigh}
-        fill="rgba(255,255,255,0.08)" rx="3"
-      />
-
-      {/* Low line */}
-      <line
-        x1={PAD.left} y1={yLow}
-        x2={PAD.left + chartW} y2={yLow}
-        stroke="rgba(245,166,35,0.5)" strokeWidth="1" strokeDasharray="3,3"
-      />
-
-      {/* High line */}
-      <line
-        x1={PAD.left} y1={yHigh}
-        x2={PAD.left + chartW} y2={yHigh}
-        stroke="rgba(232,64,64,0.35)" strokeWidth="1" strokeDasharray="3,3"
-      />
-
-      {/* Trend line */}
-      <polyline
-        points={points}
-        fill="none"
-        stroke="rgba(255,255,255,0.25)"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-
-      {/* Dots */}
-      {readings.map((r, i) => (
-        <circle
-          key={i}
-          cx={xOf(r.ts).toFixed(1)}
-          cy={yOf(r.value).toFixed(1)}
-          r="3"
-          fill={dotColor(r.value)}
-          opacity="0.9"
-        />
-      ))}
-
-      {/* Time labels */}
-      {labelReadings.map((r, i) => {
-        const x = xOf(r.ts);
-        const label = new Date(r.ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-        const anchor = i === 0 ? "start" : "end";
-        return (
-          <text
-            key={i}
-            x={x.toFixed(1)} y={H - 2}
-            textAnchor={anchor}
-            fontSize="9" fill="rgba(255,255,255,0.4)"
-            fontFamily="Nunito, sans-serif"
-          >{label}</text>
-        );
-      })}
-    </svg>
-  );
-}
-
 // ═══ Main App ══════════════════════════════════════════════════════════════
 export default function App() {
   const [tab,          setTab         ] = useState("dose");
@@ -781,18 +683,8 @@ export default function App() {
             >⚙️</button>
           </div>
 
-          {/* BG Sparkline */}
-          {history.length > 1 && (
-            <div style={{ marginTop: 16, marginBottom: 4 }}>
-              <div style={{ fontSize: 9, fontWeight: 800, color: "rgba(255,255,255,0.4)", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
-                Last 3 Hours
-              </div>
-              <BGSparkline readings={history} />
-            </div>
-          )}
-
           <div style={{
-            marginTop: 12, background: "rgba(255,255,255,0.07)",
+            marginTop: 20, background: "rgba(255,255,255,0.07)",
             borderRadius: 14, padding: "12px 16px", display: "flex", gap: 28,
           }}>
             {[
@@ -825,7 +717,6 @@ export default function App() {
         </div>
 
         <div style={{ padding:"16px 16px 0" }}>
-          <BGTrendChart history={history} />
           <QuoteBanner />
         </div>
 
