@@ -262,6 +262,119 @@ function DexcomBanner({ data, loading, error, onUse, lastFetched }) {
   );
 }
 
+// ═══ BG Trend Chart ═════════════════════════════════════════════════════════
+function BGTrendChart({ history }) {
+  if (!history || history.length < 2) return null;
+
+  const W = 440, H = 160;
+  const PAD = { top: 12, right: 36, bottom: 28, left: 10 };
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+
+  const now   = Date.now();
+  const start = now - 3 * 60 * 60 * 1000; // 3 hours ago
+  const minBG = 40, maxBG = 320;
+
+  const xScale = (ts)  => PAD.left + ((ts - start) / (now - start)) * chartW;
+  const yScale = (val) => PAD.top  + chartH - ((val - minBG) / (maxBG - minBG)) * chartH;
+
+  const inRange = (v) => v >= TARGET_LOW && v <= TARGET_HIGH;
+  const dotColor = (v) => v < TARGET_LOW ? C.low : v > TARGET_HIGH ? "#E84040" : "#27AE60";
+
+  // Range band y positions
+  const yHigh = yScale(TARGET_HIGH);
+  const yLow  = yScale(TARGET_LOW);
+
+  // Build polyline points
+  const pts = history
+    .filter(r => r.timestamp >= start)
+    .map(r => ({ x: xScale(r.timestamp), y: yScale(r.value), v: r.value, ts: r.timestamp }));
+
+  const linePath = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+
+  // Time labels (every hour)
+  const timeLabels = [];
+  for (let h = 1; h <= 3; h++) {
+    const ts  = now - (3 - h) * 60 * 60 * 1000;
+    const d   = new Date(ts);
+    const lbl = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    timeLabels.push({ x: xScale(ts), label: lbl });
+  }
+
+  const latest = pts[pts.length - 1];
+
+  return (
+    <div style={{
+      background: C.white, borderRadius: 18, border: `1px solid ${C.border}`,
+      boxShadow: "0 2px 16px rgba(0,0,0,0.06)", padding: "14px 16px 10px", marginBottom: 14,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <div style={{ fontWeight: 800, color: C.textDk, fontSize: 14 }}>📈 3-Hour Trend</div>
+        <div style={{ fontSize: 11, color: C.textLt, fontWeight: 600 }}>CGM · Dexcom G7</div>
+      </div>
+
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block", overflow: "visible" }}>
+
+        {/* In-range shaded zone */}
+        <rect
+          x={PAD.left} y={yHigh}
+          width={chartW} height={yLow - yHigh}
+          fill="rgba(39,174,96,0.08)" rx="2"
+        />
+
+        {/* Range boundary lines */}
+        <line x1={PAD.left} y1={yHigh} x2={PAD.left + chartW} y2={yHigh}
+          stroke="rgba(39,174,96,0.25)" strokeWidth="1" strokeDasharray="4 3" />
+        <line x1={PAD.left} y1={yLow} x2={PAD.left + chartW} y2={yLow}
+          stroke="rgba(245,166,35,0.35)" strokeWidth="1" strokeDasharray="4 3" />
+
+        {/* BG range labels */}
+        <text x={W - PAD.right + 4} y={yHigh + 4} fontSize="9" fill="rgba(39,174,96,0.7)" fontWeight="700">{TARGET_HIGH}</text>
+        <text x={W - PAD.right + 4} y={yLow + 4}  fontSize="9" fill="rgba(245,166,35,0.8)" fontWeight="700">{TARGET_LOW}</text>
+
+        {/* Trend line */}
+        {pts.length > 1 && (
+          <path d={linePath} fill="none"
+            stroke={latest ? dotColor(latest.v) : "#9B3FC8"}
+            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            opacity="0.5"
+          />
+        )}
+
+        {/* Dots */}
+        {pts.map((p, i) => (
+          <circle key={i} cx={p.x} cy={p.y} r={i === pts.length - 1 ? 5 : 3}
+            fill={dotColor(p.v)}
+            stroke={i === pts.length - 1 ? "#fff" : "none"}
+            strokeWidth={i === pts.length - 1 ? 2 : 0}
+          />
+        ))}
+
+        {/* Latest value label */}
+        {latest && (
+          <text
+            x={Math.min(latest.x + 8, W - PAD.right - 20)}
+            y={latest.y - 8}
+            fontSize="11" fontWeight="800"
+            fill={dotColor(latest.v)}
+            textAnchor="middle"
+          >{latest.v}</text>
+        )}
+
+        {/* Time labels */}
+        {timeLabels.map((t, i) => (
+          <g key={i}>
+            <line x1={t.x} y1={PAD.top} x2={t.x} y2={PAD.top + chartH}
+              stroke={C.border} strokeWidth="1" strokeDasharray="3 3" />
+            <text x={t.x} y={H - 4} fontSize="9" fill={C.textLt}
+              textAnchor="middle" fontWeight="600">{t.label}</text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
 // ═══ Daily Quote ════════════════════════════════════════════════════════════
 function QuoteBanner() {
   const q = getDailyQuote();
@@ -384,6 +497,105 @@ function LogRow({ entry, onDelete }) {
   );
 }
 
+
+// ═══ BG Sparkline Chart ═════════════════════════════════════════════════════
+function BGSparkline({ readings }) {
+  if (!readings || readings.length < 2) return null;
+
+  const W = 440, H = 80;
+  const PAD = { top: 8, bottom: 18, left: 4, right: 4 };
+  const LOW = 80, HIGH = 180, MIN_VAL = 40, MAX_VAL = 300;
+
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+
+  const minTs = readings[0].ts;
+  const maxTs = readings[readings.length - 1].ts;
+  const tsRange = maxTs - minTs || 1;
+
+  const xOf = (ts)  => PAD.left + ((ts - minTs) / tsRange) * chartW;
+  const yOf = (val) => PAD.top  + (1 - (Math.min(Math.max(val, MIN_VAL), MAX_VAL) - MIN_VAL) / (MAX_VAL - MIN_VAL)) * chartH;
+
+  const yLow  = yOf(LOW);
+  const yHigh = yOf(HIGH);
+
+  // Build polyline points
+  const points = readings.map(r => `${xOf(r.ts).toFixed(1)},${yOf(r.value).toFixed(1)}`).join(" ");
+
+  // Time labels: show every ~30 min
+  const labelReadings = readings.filter((_, i) => i === 0 || i === readings.length - 1 ||
+    (readings[i].ts - readings[i-1].ts > 25 * 60000));
+
+  const dotColor = (v) => v < LOW ? "#F5A623" : v > HIGH ? "#E84040" : "#4ADE80";
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      style={{ width: "100%", height: H, display: "block" }}
+      preserveAspectRatio="none"
+    >
+      {/* In-range band */}
+      <rect
+        x={PAD.left} y={yHigh}
+        width={chartW} height={yLow - yHigh}
+        fill="rgba(255,255,255,0.08)" rx="3"
+      />
+
+      {/* Low line */}
+      <line
+        x1={PAD.left} y1={yLow}
+        x2={PAD.left + chartW} y2={yLow}
+        stroke="rgba(245,166,35,0.5)" strokeWidth="1" strokeDasharray="3,3"
+      />
+
+      {/* High line */}
+      <line
+        x1={PAD.left} y1={yHigh}
+        x2={PAD.left + chartW} y2={yHigh}
+        stroke="rgba(232,64,64,0.35)" strokeWidth="1" strokeDasharray="3,3"
+      />
+
+      {/* Trend line */}
+      <polyline
+        points={points}
+        fill="none"
+        stroke="rgba(255,255,255,0.25)"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+
+      {/* Dots */}
+      {readings.map((r, i) => (
+        <circle
+          key={i}
+          cx={xOf(r.ts).toFixed(1)}
+          cy={yOf(r.value).toFixed(1)}
+          r="3"
+          fill={dotColor(r.value)}
+          opacity="0.9"
+        />
+      ))}
+
+      {/* Time labels */}
+      {labelReadings.map((r, i) => {
+        const x = xOf(r.ts);
+        const label = new Date(r.ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        const anchor = i === 0 ? "start" : "end";
+        return (
+          <text
+            key={i}
+            x={x.toFixed(1)} y={H - 2}
+            textAnchor={anchor}
+            fontSize="9" fill="rgba(255,255,255,0.4)"
+            fontFamily="Nunito, sans-serif"
+          >{label}</text>
+        );
+      })}
+    </svg>
+  );
+}
+
 // ═══ Main App ══════════════════════════════════════════════════════════════
 export default function App() {
   const [tab,          setTab         ] = useState("dose");
@@ -401,6 +613,7 @@ export default function App() {
   const [dexLoading,  setDexLoading ] = useState(true);
   const [dexError,    setDexError   ] = useState(null);
   const [lastFetched, setLastFetched] = useState(null);
+  const [history,     setHistory    ] = useState([]);
   const pollRef = useRef();
 
   // Load shared log from server + ratios locally per device
@@ -413,15 +626,18 @@ export default function App() {
   useEffect(() => {
     const fetchDex = async () => {
       try {
-        const r = await fetch("/api/dexcom");
-        const j = await r.json();
-        if (j.error) {
-          setDexError(j.error);
+        const [latest, hist] = await Promise.all([
+          fetch("/api/dexcom").then(r => r.json()),
+          fetch("/api/dexcom-history").then(r => r.json()),
+        ]);
+        if (latest.error) {
+          setDexError(latest.error);
           setDex(null);
         } else {
-          setDex(j);
+          setDex(latest);
           setDexError(null);
         }
+        if (Array.isArray(hist)) setHistory(hist);
       } catch (e) {
         setDexError("network");
       } finally {
@@ -565,8 +781,18 @@ export default function App() {
             >⚙️</button>
           </div>
 
+          {/* BG Sparkline */}
+          {history.length > 1 && (
+            <div style={{ marginTop: 16, marginBottom: 4 }}>
+              <div style={{ fontSize: 9, fontWeight: 800, color: "rgba(255,255,255,0.4)", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
+                Last 3 Hours
+              </div>
+              <BGSparkline readings={history} />
+            </div>
+          )}
+
           <div style={{
-            marginTop: 20, background: "rgba(255,255,255,0.07)",
+            marginTop: 12, background: "rgba(255,255,255,0.07)",
             borderRadius: 14, padding: "12px 16px", display: "flex", gap: 28,
           }}>
             {[
@@ -599,6 +825,7 @@ export default function App() {
         </div>
 
         <div style={{ padding:"16px 16px 0" }}>
+          <BGTrendChart history={history} />
           <QuoteBanner />
         </div>
 
