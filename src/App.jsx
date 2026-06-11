@@ -285,9 +285,41 @@ const PERIODS = [
 ];
 
 function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh }) {
-  const [loading,  setLoading ] = useState(true);
-  const [readings, setReadings] = useState([]);
-  const [period,   setPeriod  ] = useState(7); // days
+  const [loading,     setLoading    ] = useState(true);
+  const [readings,    setReadings   ] = useState([]);
+  const [period,      setPeriod     ] = useState(7);
+  const [importing,   setImporting  ] = useState(false);
+  const [importDone,  setImportDone ] = useState(false);
+  const [importCount, setImportCount] = useState(0);
+
+  const importHistory = async () => {
+    setImporting(true);
+    try {
+      const res  = await fetch("/bg-seed.json");
+      const seed = await res.json();
+      // Send in chunks of 500 to avoid request size limits
+      const CHUNK = 500;
+      let total = 0;
+      for (let i = 0; i < seed.length; i += CHUNK) {
+        const chunk = seed.slice(i, i + CHUNK);
+        await fetch("/api/bg-store", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ readings: chunk }),
+        });
+        total += chunk.length;
+        setImportCount(total);
+      }
+      // Reload from store
+      const updated = await fetch("/api/bg-store").then(r => r.json());
+      if (Array.isArray(updated)) setReadings(updated);
+      setImportDone(true);
+    } catch(e) {
+      console.error("Import failed:", e);
+    } finally {
+      setImporting(false);
+    }
+  };
 
   // Apply user-configured ranges to globals
   TARGET_LOW  = rangeLow;
@@ -509,6 +541,31 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh }) {
           );
         })}
       </Card>
+
+      {/* Import historical data */}
+      {!importDone && (
+        <div style={{ background:C.offWhite, border:`1.5px solid ${C.border}`, borderRadius:16,
+          padding:"16px", marginBottom:16, textAlign:"center" }}>
+          <div style={{ fontWeight:800, color:C.textDk, fontSize:14, marginBottom:6 }}>📂 90-Day History Available</div>
+          <div style={{ fontSize:12, color:C.textMd, marginBottom:12, lineHeight:1.5 }}>
+            Import Hudson's historical readings from Sugarmate<br/>
+            (Mar 13 – Jun 11, 2026 · 25,214 readings)
+          </div>
+          <button type="button" onClick={importHistory} disabled={importing}
+            style={{ background:`linear-gradient(135deg,${C.blue},#C060F0)`, color:"#fff",
+              border:"none", borderRadius:30, padding:"10px 24px", fontWeight:800,
+              fontSize:14, cursor:importing?"not-allowed":"pointer", fontFamily:"inherit",
+              opacity:importing?0.7:1 }}>
+            {importing ? `Importing… ${importCount.toLocaleString()} / 25,214` : "Import History Now"}
+          </button>
+        </div>
+      )}
+      {importDone && (
+        <div style={{ background:"#27AE6011", border:`1.5px solid #27AE6033`, borderRadius:16,
+          padding:"12px", marginBottom:16, textAlign:"center", fontSize:13, fontWeight:700, color:C.inRange }}>
+          ✅ 25,214 readings imported — switch periods to see full trends!
+        </div>
+      )}
 
       <div style={{ textAlign:"center", color:C.textLt, fontSize:11, paddingBottom:20, lineHeight:1.6 }}>
         Readings accumulate every 5 min while app is open<br/>
