@@ -277,9 +277,17 @@ function BGTrendChart({ history }) {
 }
 
 // ═══ Analytics Tab ═══════════════════════════════════════════════════════════
+const PERIODS = [
+  { label:"3 Days",  days:3  },
+  { label:"1 Week",  days:7  },
+  { label:"2 Weeks", days:14 },
+  { label:"4 Weeks", days:28 },
+];
+
 function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh }) {
   const [loading,  setLoading ] = useState(true);
   const [readings, setReadings] = useState([]);
+  const [period,   setPeriod  ] = useState(7); // days
 
   // Apply user-configured ranges to globals
   TARGET_LOW  = rangeLow;
@@ -293,14 +301,15 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh }) {
       .finally(()=>setLoading(false));
   }, []);
 
+  // Merge and filter to selected period
+  const cutoff = Date.now() - period * 24 * 60 * 60 * 1000;
   const all = (() => {
     const map = {};
     [...readings, ...(bgHistory||[])].forEach(r => { map[r.ts]=r; });
-    return Object.values(map).sort((a,b)=>a.ts-b.ts);
+    return Object.values(map).filter(r => r.ts >= cutoff).sort((a,b)=>a.ts-b.ts);
   })();
 
   const stats = computeStats(all);
-  const DAYS  = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const MEAL_WINDOWS = [
     { key:"breakfast", label:"Breakfast", icon:"☀️",  hours:"5am–10am"  },
     { key:"lunch",     label:"Lunch",     icon:"🌤️", hours:"11am–2pm"  },
@@ -368,6 +377,19 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh }) {
 
   return (
     <div className="slideUp">
+
+      {/* Period picker */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6, marginBottom:16 }}>
+        {PERIODS.map(p=>(
+          <button key={p.days} type="button" onClick={()=>setPeriod(p.days)}
+            style={{ padding:"8px 0", borderRadius:20, fontFamily:"inherit", textAlign:"center", fontWeight:800, fontSize:12,
+              border: period===p.days ? `2px solid ${C.blue}` : `1.5px solid ${C.border}`,
+              background: period===p.days ? `${C.blue}18` : C.offWhite,
+              color: period===p.days ? C.blue : C.textMd, cursor:"pointer" }}>
+            {p.label}
+          </button>
+        ))}
+      </div>
 
       {/* Header row */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
@@ -481,30 +503,6 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh }) {
             </div>
           );
         })}
-      </Card>
-
-      {/* Day of week */}
-      <Card style={{ marginBottom:12 }}>
-        <div style={{ fontWeight:800, color:C.textDk, fontSize:15, marginBottom:14 }}>📅 Avg BG by Day</div>
-        <div style={{ display:"flex", gap:4, alignItems:"flex-end", height:80 }}>
-          {stats.dayAvgs.map((avg,i)=>{
-            if (!avg) return (
-              <div key={i} style={{ flex:1, textAlign:"center" }}>
-                <div style={{ background:C.offWhite, borderRadius:4, height:8, marginBottom:4 }}/>
-                <div style={{ fontSize:9, color:C.textLt, fontWeight:600 }}>{DAYS[i]}</div>
-              </div>
-            );
-            const h   = Math.max(12, Math.min(70, ((avg-60)/260)*70));
-            const col = avg<rangeLow?C.low:avg>rangeHigh?C.high:C.inRange;
-            return (
-              <div key={i} style={{ flex:1, textAlign:"center", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"flex-end" }}>
-                <div style={{ fontSize:9, fontWeight:800, color:col, marginBottom:2 }}>{avg}</div>
-                <div style={{ width:"100%", height:h, background:col, borderRadius:"4px 4px 0 0", opacity:0.85 }}/>
-                <div style={{ fontSize:9, color:C.textLt, fontWeight:600, marginTop:3 }}>{DAYS[i]}</div>
-              </div>
-            );
-          })}
-        </div>
       </Card>
 
       <div style={{ textAlign:"center", color:C.textLt, fontSize:11, paddingBottom:20, lineHeight:1.6 }}>
@@ -762,8 +760,8 @@ export default function App() {
                 Insulin Tracker
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:4, flexWrap:"wrap" }}>
-                <div style={{ color:"#fff", fontSize:26, fontWeight:900, lineHeight:1.1 }}>Hey Hudson 🏈</div>
-                {dex?.value ? (() => {
+                {tab !== "stats" && <div style={{ color:"#fff", fontSize:26, fontWeight:900, lineHeight:1.1 }}>Hey Hudson 🏈</div>}
+                {tab !== "stats" && dex?.value ? (() => {
                   const bgColor = dex.value<TARGET_LOW?"#F5A623":dex.value>TARGET_HIGH?"#E84040":"#4ADE80";
                   const tr=dex.trend;
                   const arrowColor=(tr===1||tr==="DoubleUp"||tr===7||tr==="DoubleDown")?"#E84040"
@@ -803,9 +801,11 @@ export default function App() {
                     color:"rgba(255,255,255,0.4)",fontSize:12,fontWeight:600 }}>📡 Connecting…</div>
                 ) : null}
               </div>
-              <div style={{ color:"rgba(255,255,255,0.45)", fontSize:13, marginTop:4 }}>
-                {new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}
-              </div>
+              {tab !== "stats" && (
+                <div style={{ color:"rgba(255,255,255,0.45)", fontSize:13, marginTop:4 }}>
+                  {new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}
+                </div>
+              )}
             </div>
             <button type="button" onClick={()=>setShowSettings(true)}
               style={{ background:"rgba(255,255,255,0.12)",border:"1.5px solid rgba(255,255,255,0.20)",
@@ -813,8 +813,8 @@ export default function App() {
                 display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,padding:0,marginLeft:12 }}>⚙️</button>
           </div>
 
-          {/* 3-hr chart */}
-          {history.length>1&&(
+          {/* 3-hr chart — hide on trends tab */}
+          {tab !== "stats" && history.length>1&&(
             <div style={{ marginTop:16, marginBottom:4 }}>
               <div style={{ fontSize:9,fontWeight:800,color:"rgba(255,255,255,0.4)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:4 }}>
                 Last 3 Hours
@@ -823,8 +823,8 @@ export default function App() {
             </div>
           )}
 
-          {/* Today strip */}
-          <div style={{ marginTop:12,background:"rgba(255,255,255,0.07)",borderRadius:14,padding:"12px 16px",display:"flex",gap:28 }}>
+          {/* Today strip — hide on trends tab */}
+          {tab !== "stats" && <div style={{ marginTop:12,background:"rgba(255,255,255,0.07)",borderRadius:14,padding:"12px 16px",display:"flex",gap:28 }}>
             {[
               { label:"Doses",         value:todayE.length||"—" },
               { label:"Total carbs",   value:todayE.length?todayE.reduce((s,e)=>s+e.carbs,0)+"g":"—" },
@@ -835,7 +835,7 @@ export default function App() {
                 <div style={{ color:"rgba(255,255,255,0.45)",fontSize:11,fontWeight:600 }}>{s.label}</div>
               </div>
             ))}
-          </div>
+          </div>}
         </div>
 
         {/* ── Tabs ── */}
