@@ -113,15 +113,23 @@ const sharedLog = {
 };
 
 // ═══ Analytics helpers ════════════════════════════════════════════════════════
-function mealWindow(hour) {
-  if (hour>=5  && hour<10) return "breakfast";
-  if (hour>=11 && hour<14) return "lunch";
-  if (hour>=17 && hour<21) return "dinner";
-  if (hour>=14 && hour<17) return "snack";
+const DEFAULT_MEAL_WINDOWS = {
+  breakfast: { start:5,  end:10 },
+  lunch:     { start:10, end:14 },
+  snack:     { start:14, end:17 },
+  dinner:    { start:17, end:21 },
+};
+
+function mealWindowFor(hour, windows) {
+  const w = windows || DEFAULT_MEAL_WINDOWS;
+  if (hour >= w.breakfast.start && hour < w.breakfast.end) return "breakfast";
+  if (hour >= w.lunch.start     && hour < w.lunch.end)     return "lunch";
+  if (hour >= w.snack.start     && hour < w.snack.end)     return "snack";
+  if (hour >= w.dinner.start    && hour < w.dinner.end)    return "dinner";
   return "overnight";
 }
 
-function computeStats(readings) {
+function computeStats(readings, mealWindows) {
   if (!readings || readings.length === 0) return null;
   const vals = readings.map(r => r.value);
   const avg = Math.round(vals.reduce((a,b)=>a+b,0) / vals.length);
@@ -139,7 +147,7 @@ function computeStats(readings) {
   const windows = {};
   readings.forEach(r => {
     const h   = new Date(r.ts).getHours();
-    const win = mealWindow(h);
+    const win = mealWindowFor(h, mealWindows);
     if (!windows[win]) windows[win] = [];
     windows[win].push(r.value);
   });
@@ -277,49 +285,29 @@ function BGTrendChart({ history }) {
 }
 
 // ═══ Analytics Tab ═══════════════════════════════════════════════════════════
-const PERIODS = [
-  { label:"3 Days",  days:3  },
-  { label:"1 Week",  days:7  },
-  { label:"2 Weeks", days:14 },
-  { label:"4 Weeks", days:28 },
+const PRESET_PERIODS = [
+  { label:"7D",  days:7  },
+  { label:"14D", days:14 },
+  { label:"30D", days:30 },
+  { label:"60D", days:60 },
+  { label:"90D", days:90 },
 ];
 
-function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh }) {
-  const [loading,     setLoading    ] = useState(true);
-  const [readings,    setReadings   ] = useState([]);
-  const [period,      setPeriod     ] = useState(7);
-  const [importing,   setImporting  ] = useState(false);
-  const [importDone,  setImportDone ] = useState(false);
-  const [importCount, setImportCount] = useState(0);
+function toDateInputVal(ts) {
+  return new Date(ts).toISOString().slice(0,10);
+}
+function fromDateInputVal(s) {
+  return new Date(s).getTime();
+}
 
-  const importHistory = async () => {
-    setImporting(true);
-    try {
-      const res  = await fetch("/bg-seed.json");
-      const seed = await res.json();
-      // Send in chunks of 500 to avoid request size limits
-      const CHUNK = 500;
-      let total = 0;
-      for (let i = 0; i < seed.length; i += CHUNK) {
-        const chunk = seed.slice(i, i + CHUNK);
-        await fetch("/api/bg-store", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ readings: chunk }),
-        });
-        total += chunk.length;
-        setImportCount(total);
-      }
-      // Reload from store
-      const updated = await fetch("/api/bg-store").then(r => r.json());
-      if (Array.isArray(updated)) setReadings(updated);
-      setImportDone(true);
-    } catch(e) {
-      console.error("Import failed:", e);
-    } finally {
-      setImporting(false);
-    }
-  };
+function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
+  const [loading,    setLoading ] = useState(true);
+  const [readings,   setReadings] = useState([]);
+  const [period,     setPeriod  ] = useState(30);
+  const [useCustom,  setUseCustom] = useState(false);
+  const ninetyAgo = Date.now() - 90*24*60*60*1000;
+  const [customFrom, setCustomFrom] = useState(toDateInputVal(ninetyAgo));
+  const [customTo,   setCustomTo  ] = useState(toDateInputVal(Date.now()));
 
   // Apply user-configured ranges to globals
   TARGET_LOW  = rangeLow;
@@ -333,21 +321,25 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh }) {
       .finally(()=>setLoading(false));
   }, []);
 
-  // Merge and filter to selected period
-  const cutoff = Date.now() - period * 24 * 60 * 60 * 1000;
+  // Compute date window
+  const fromTs = useCustom ? fromDateInputVal(customFrom) : Date.now() - period*24*60*60*1000;
+  const toTs   = useCustom ? fromDateInputVal(customTo) + 86400000 : Date.now();
+
   const all = (() => {
     const map = {};
     [...readings, ...(bgHistory||[])].forEach(r => { map[r.ts]=r; });
-    return Object.values(map).filter(r => r.ts >= cutoff).sort((a,b)=>a.ts-b.ts);
+    return Object.values(map).filter(r => r.ts >= fromTs && r.ts <= toTs).sort((a,b)=>a.ts-b.ts);
   })();
 
-  const stats = computeStats(all);
+  const stats = computeStats(all, mealWindows);
+  const fmtH = h => h===0?"12am":h<12?`${h}am`:h===12?"12pm":`${h-12}pm`;
+  const mw = mealWindows || DEFAULT_MEAL_WINDOWS;
   const MEAL_WINDOWS = [
-    { key:"breakfast", label:"Breakfast", icon:"☀️",  hours:"5am–10am"  },
-    { key:"lunch",     label:"Lunch",     icon:"🌤️", hours:"11am–2pm"  },
-    { key:"snack",     label:"Snack",     icon:"🍎",  hours:"2pm–5pm"   },
-    { key:"dinner",    label:"Dinner",    icon:"🌙",  hours:"5pm–9pm"   },
-    { key:"overnight", label:"Overnight", icon:"🌑",  hours:"9pm–5am"   },
+    { key:"breakfast", label:"Breakfast", icon:"☀️",  hours:`${fmtH(mw.breakfast.start)}–${fmtH(mw.breakfast.end)}`  },
+    { key:"lunch",     label:"Lunch",     icon:"🌤️", hours:`${fmtH(mw.lunch.start)}–${fmtH(mw.lunch.end)}`           },
+    { key:"snack",     label:"Snack",     icon:"🍎",  hours:`${fmtH(mw.snack.start)}–${fmtH(mw.snack.end)}`           },
+    { key:"dinner",    label:"Dinner",    icon:"🌙",  hours:`${fmtH(mw.dinner.start)}–${fmtH(mw.dinner.end)}`         },
+    { key:"overnight", label:"Overnight", icon:"🌑",  hours:"Remaining hours"                                          },
   ];
 
   // Ratio recommendation engine
@@ -411,21 +403,37 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh }) {
     <div className="slideUp">
 
       {/* Period picker */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6, marginBottom:8 }}>
-        {PERIODS.map(p=>(
-          <button key={p.days} type="button" onClick={()=>setPeriod(p.days)}
-            style={{ padding:"8px 0", borderRadius:20, fontFamily:"inherit", textAlign:"center", fontWeight:800, fontSize:12,
-              border: period===p.days ? `2px solid ${C.blue}` : `1.5px solid ${C.border}`,
-              background: period===p.days ? `${C.blue}18` : C.offWhite,
-              color: period===p.days ? C.blue : C.textMd, cursor:"pointer" }}>
-            {p.label}
-          </button>
-        ))}
-      </div>
-      <div style={{ fontSize:11, color:C.textLt, textAlign:"center", marginBottom:14, fontStyle:"italic" }}>
-        {all.length < 20
-          ? "📡 Only showing today — data builds up daily as the app stays open"
-          : `Showing ${period}-day window · ${all.length} readings`}
+      <div style={{ marginBottom:14 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:6, marginBottom:8 }}>
+          {PRESET_PERIODS.map(p=>(
+            <button key={p.days} type="button" onClick={()=>{ setPeriod(p.days); setUseCustom(false); }}
+              style={{ padding:"8px 0", borderRadius:20, fontFamily:"inherit", textAlign:"center", fontWeight:800, fontSize:12,
+                border: (!useCustom && period===p.days) ? `2px solid ${C.blue}` : `1.5px solid ${C.border}`,
+                background: (!useCustom && period===p.days) ? `${C.blue}18` : C.offWhite,
+                color: (!useCustom && period===p.days) ? C.blue : C.textMd, cursor:"pointer" }}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+        {/* Custom date range */}
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          <input type="date" value={customFrom}
+            onChange={e=>{ setCustomFrom(e.target.value); setUseCustom(true); }}
+            style={{ flex:1, padding:"8px 10px", borderRadius:12, fontSize:12, fontFamily:"inherit",
+              border: useCustom ? `2px solid ${C.blue}` : `1.5px solid ${C.border}`,
+              color:C.textDk, outline:"none", background: useCustom ? `${C.blue}08` : C.white }}/>
+          <span style={{ color:C.textLt, fontSize:12, fontWeight:600 }}>to</span>
+          <input type="date" value={customTo}
+            onChange={e=>{ setCustomTo(e.target.value); setUseCustom(true); }}
+            style={{ flex:1, padding:"8px 10px", borderRadius:12, fontSize:12, fontFamily:"inherit",
+              border: useCustom ? `2px solid ${C.blue}` : `1.5px solid ${C.border}`,
+              color:C.textDk, outline:"none", background: useCustom ? `${C.blue}08` : C.white }}/>
+        </div>
+        <div style={{ fontSize:11, color:C.textLt, marginTop:6, textAlign:"center" }}>
+          {all.length === 0
+            ? "No readings in this range"
+            : `${all.length.toLocaleString()} readings · ${new Date(fromTs).toLocaleDateString("en-US",{month:"short",day:"numeric"})} – ${new Date(Math.min(toTs,Date.now())).toLocaleDateString("en-US",{month:"short",day:"numeric"})}`}
+        </div>
       </div>
 
       {/* Header row */}
@@ -542,31 +550,6 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh }) {
         })}
       </Card>
 
-      {/* Import historical data */}
-      {!importDone && (
-        <div style={{ background:C.offWhite, border:`1.5px solid ${C.border}`, borderRadius:16,
-          padding:"16px", marginBottom:16, textAlign:"center" }}>
-          <div style={{ fontWeight:800, color:C.textDk, fontSize:14, marginBottom:6 }}>📂 90-Day History Available</div>
-          <div style={{ fontSize:12, color:C.textMd, marginBottom:12, lineHeight:1.5 }}>
-            Import Hudson's historical readings from Sugarmate<br/>
-            (Mar 13 – Jun 11, 2026 · 25,214 readings)
-          </div>
-          <button type="button" onClick={importHistory} disabled={importing}
-            style={{ background:`linear-gradient(135deg,${C.blue},#C060F0)`, color:"#fff",
-              border:"none", borderRadius:30, padding:"10px 24px", fontWeight:800,
-              fontSize:14, cursor:importing?"not-allowed":"pointer", fontFamily:"inherit",
-              opacity:importing?0.7:1 }}>
-            {importing ? `Importing… ${importCount.toLocaleString()} / 25,214` : "Import History Now"}
-          </button>
-        </div>
-      )}
-      {importDone && (
-        <div style={{ background:"#27AE6011", border:`1.5px solid #27AE6033`, borderRadius:16,
-          padding:"12px", marginBottom:16, textAlign:"center", fontSize:13, fontWeight:700, color:C.inRange }}>
-          ✅ 25,214 readings imported — switch periods to see full trends!
-        </div>
-      )}
-
       <div style={{ textAlign:"center", color:C.textLt, fontSize:11, paddingBottom:20, lineHeight:1.6 }}>
         Readings accumulate every 5 min while app is open<br/>
         Always confirm ratio changes with Hudson's endocrinologist
@@ -594,9 +577,11 @@ function QuoteBanner() {
 }
 
 // ═══ Settings Modal ═══════════════════════════════════════════════════════════
-function SettingsModal({ ratios, setRatios, alertNumbers, setAlertNumbers, rangeLow, setRangeLow, rangeHigh, setRangeHigh, onClose }) {
+function SettingsModal({ ratios, setRatios, alertNumbers, setAlertNumbers, rangeLow, setRangeLow, rangeHigh, setRangeHigh, mealWindows, setMealWindows, onClose }) {
   const [local, setLocal]               = useState({ ...ratios });
   const [localNumbers, setLocalNumbers] = useState([...alertNumbers]);
+  const [localMW, setLocalMW]           = useState({ ...(mealWindows||DEFAULT_MEAL_WINDOWS) });
+  const fmtH = h => h===0?"12am":h<12?`${h}am`:h===12?"12pm":`${h-12}pm`;
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -641,6 +626,40 @@ function SettingsModal({ ratios, setRatios, alertNumbers, setAlertNumbers, range
           </div>
         </div>
 
+        {/* Meal Window Times */}
+        <div style={{ marginBottom:24 }}>
+          <div style={{ fontWeight:900, fontSize:16, color:C.textDk, marginBottom:4 }}>⏰ Meal Time Windows</div>
+          <div style={{ color:C.textMd, fontSize:12, marginBottom:16 }}>
+            Adjust which hours count as each meal — affects Trends analysis
+          </div>
+          {["breakfast","lunch","snack","dinner"].map(key => {
+            const m     = MEALS.find(x=>x.id===key);
+            const win   = localMW[key];
+            return (
+              <div key={key} style={{ marginBottom:14 }}>
+                <div style={{ fontWeight:700, color:C.textDk, fontSize:14, marginBottom:8 }}>
+                  {m?.icon} {m?.label}
+                </div>
+                <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:10, color:C.textLt, fontWeight:700, marginBottom:4 }}>START</div>
+                    <NumPad value={win.start} step={1} min={0} max={23} unit="h"
+                      onChange={v=>setLocalMW(p=>({...p,[key]:{...p[key],start:v}}))}/>
+                    <div style={{ textAlign:"center", fontSize:10, color:C.textMd, marginTop:2 }}>{fmtH(win.start)}</div>
+                  </div>
+                  <div style={{ color:C.textLt, fontWeight:700 }}>→</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:10, color:C.textLt, fontWeight:700, marginBottom:4 }}>END</div>
+                    <NumPad value={win.end} step={1} min={0} max={23} unit="h"
+                      onChange={v=>setLocalMW(p=>({...p,[key]:{...p[key],end:v}}))}/>
+                    <div style={{ textAlign:"center", fontSize:10, color:C.textMd, marginTop:2 }}>{fmtH(win.end)}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
         {/* Alert Numbers */}
         <div style={{ marginBottom:24 }}>
           <div style={{ fontWeight:900, fontSize:16, color:C.textDk, marginBottom:4 }}>📱 Alert Numbers</div>
@@ -667,7 +686,7 @@ function SettingsModal({ ratios, setRatios, alertNumbers, setAlertNumbers, range
 
         <div style={{ display:"flex", gap:12 }}>
           <Btn variant="secondary" onClick={onClose} style={{ flex:1 }}>Cancel</Btn>
-          <Btn onClick={()=>{ setRatios(local); setAlertNumbers(localNumbers.filter(n=>n.trim().length>=10)); onClose(); }} style={{ flex:1 }}>Save Changes</Btn>
+          <Btn onClick={()=>{ setRatios(local); setAlertNumbers(localNumbers.filter(n=>n.trim().length>=10)); setMealWindows(localMW); onClose(); }} style={{ flex:1 }}>Save Changes</Btn>
         </div>
       </div>
     </div>
@@ -714,6 +733,7 @@ export default function App() {
   const [alertNumbers, setAlertNumbers] = useState(()=>localStore.get("hud-alert-numbers",["2674812133"]));
   const [rangeLow,     setRangeLow    ] = useState(()=>localStore.get("hud-range-low",  80));
   const [rangeHigh,    setRangeHigh   ] = useState(()=>localStore.get("hud-range-high", 180));
+  const [mealWindows,  setMealWindows ] = useState(()=>localStore.get("hud-meal-windows", DEFAULT_MEAL_WINDOWS));
   const [dex,          setDex         ] = useState(null);
   const [dexLoading,   setDexLoading  ] = useState(true);
   const [dexError,     setDexError    ] = useState(null);
@@ -761,8 +781,12 @@ export default function App() {
     return ()=>{ clearInterval(pollRef.current); document.removeEventListener("visibilitychange", onVis); };
   }, []);
 
-  const saveRatios = r => { setRatios(r); localStore.set("hud-ratios",r); };
+  const syncSettings = (patch) => {
+    fetch("/api/settings-sync", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(patch) }).catch(()=>{});
+  };
+  const saveRatios = r => { setRatios(r); localStore.set("hud-ratios",r); syncSettings({ratios:r}); };
   const saveAlertNumbers = n => { setAlertNumbers(n); localStore.set("hud-alert-numbers",n); };
+  const saveMealWindows  = w => { setMealWindows(w); localStore.set("hud-meal-windows",w); syncSettings({mealWindows:w}); };
 
   const sendAlert = async (key, message) => {
     const now = Date.now(), last = lastAlertRef.current;
@@ -810,19 +834,16 @@ export default function App() {
 
         {/* ── Header ── */}
         <div style={{ background:`linear-gradient(160deg,${C.navyDk} 0%,#200040 40%,#2D0057 100%)`,
-          padding:"52px 24px 24px", position:"relative", overflow:"hidden" }}>
-          <div style={{ position:"absolute",right:-60,top:-60,width:200,height:200,
-            borderRadius:"50%",border:"40px solid rgba(255,182,18,0.12)",pointerEvents:"none" }}/>
-          <div style={{ position:"absolute",right:30,bottom:-30,width:120,height:120,
-            borderRadius:"50%",border:"25px solid rgba(155,63,200,0.15)",pointerEvents:"none" }}/>
+          padding:"36px 20px 16px", position:"relative", overflow:"hidden" }}>
+
 
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
             <div style={{ flex:1 }}>
-              <div style={{ color:C.teal, fontSize:11, fontWeight:800, letterSpacing:2, textTransform:"uppercase" }}>
+              <div style={{ color:C.teal, fontSize:10, fontWeight:800, letterSpacing:1.5, textTransform:"uppercase" }}>
                 Insulin Tracker
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:4, flexWrap:"wrap" }}>
-                {tab !== "stats" && <div style={{ color:"#fff", fontSize:26, fontWeight:900, lineHeight:1.1 }}>Hey Hudson 🏈</div>}
+                {tab !== "stats" && <div style={{ color:"#fff", fontSize:22, fontWeight:900, lineHeight:1.1 }}>Hey Hudson 🏈</div>}
                 {tab !== "stats" && dex?.value ? (() => {
                   const bgColor = dex.value<TARGET_LOW?"#F5A623":dex.value>TARGET_HIGH?"#E84040":"#4ADE80";
                   const tr=dex.trend;
@@ -864,7 +885,7 @@ export default function App() {
                 ) : null}
               </div>
               {tab !== "stats" && (
-                <div style={{ color:"rgba(255,255,255,0.45)", fontSize:13, marginTop:4 }}>
+                <div style={{ color:"rgba(255,255,255,0.45)", fontSize:11, marginTop:2 }}>
                   {new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}
                 </div>
               )}
@@ -877,7 +898,7 @@ export default function App() {
 
           {/* 3-hr chart — hide on trends tab */}
           {tab !== "stats" && history.length>1&&(
-            <div style={{ marginTop:16, marginBottom:4 }}>
+            <div style={{ marginTop:10, marginBottom:2 }}>
               <div style={{ fontSize:9,fontWeight:800,color:"rgba(255,255,255,0.4)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:4 }}>
                 Last 3 Hours
               </div>
@@ -886,14 +907,14 @@ export default function App() {
           )}
 
           {/* Today strip — hide on trends tab */}
-          {tab !== "stats" && <div style={{ marginTop:12,background:"rgba(255,255,255,0.07)",borderRadius:14,padding:"12px 16px",display:"flex",gap:28 }}>
+          {tab !== "stats" && <div style={{ marginTop:10,background:"rgba(255,255,255,0.07)",borderRadius:12,padding:"8px 14px",display:"flex",gap:20 }}>
             {[
               { label:"Doses",         value:todayE.length||"—" },
               { label:"Total carbs",   value:todayE.length?todayE.reduce((s,e)=>s+e.carbs,0)+"g":"—" },
               { label:"Total insulin", value:todayE.length?todayE.reduce((s,e)=>s+e.dose,0)+"u":"—" },
             ].map(s=>(
               <div key={s.label}>
-                <div style={{ color:"#fff",fontWeight:800,fontSize:18 }}>{s.value}</div>
+                <div style={{ color:"#fff",fontWeight:800,fontSize:16 }}>{s.value}</div>
                 <div style={{ color:"rgba(255,255,255,0.45)",fontSize:11,fontWeight:600 }}>{s.label}</div>
               </div>
             ))}
@@ -1055,7 +1076,7 @@ export default function App() {
           )}
 
           {/* ══ ANALYTICS ══ */}
-          {tab==="stats"&&<AnalyticsTab bgHistory={history} ratios={ratios} rangeLow={rangeLow} rangeHigh={rangeHigh}/>}
+          {tab==="stats"&&<AnalyticsTab bgHistory={history} ratios={ratios} rangeLow={rangeLow} rangeHigh={rangeHigh} mealWindows={mealWindows}/>}
         </div>
 
 
@@ -1066,6 +1087,7 @@ export default function App() {
           alertNumbers={alertNumbers} setAlertNumbers={saveAlertNumbers}
           rangeLow={rangeLow}   setRangeLow={v=>{setRangeLow(v);   localStore.set("hud-range-low",v);}}
           rangeHigh={rangeHigh} setRangeHigh={v=>{setRangeHigh(v); localStore.set("hud-range-high",v);}}
+          mealWindows={mealWindows} setMealWindows={saveMealWindows}
           onClose={()=>setShowSettings(false)}/>
       )}
     </>
