@@ -1,19 +1,18 @@
 import { kv } from "@vercel/kv";
 
-const FOUR_WEEKS_MS = 28 * 24 * 60 * 60 * 1000;
+const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
 const KEY = "hudson-bg-history";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Cache-Control", "no-store");
 
-  // POST — save new readings coming in from the app's Dexcom poll
   if (req.method === "POST") {
     const { readings } = req.body;
     if (!Array.isArray(readings)) return res.status(400).json({ error:"invalid" });
     try {
       const existing = (await kv.get(KEY)) ?? [];
-      const cutoff   = Date.now() - FOUR_WEEKS_MS;
+      const cutoff   = Date.now() - NINETY_DAYS_MS;
       const map = {};
       [...existing, ...readings].filter(r => r.ts > cutoff).forEach(r => { map[r.ts] = r; });
       const sorted = Object.values(map).sort((a,b) => a.ts - b.ts);
@@ -22,7 +21,6 @@ export default async function handler(req, res) {
     } catch(e) { return res.status(500).json({ error: String(e) }); }
   }
 
-  // GET — return full history for analytics
   if (req.method === "GET") {
     try {
       const data = (await kv.get(KEY)) ?? [];
