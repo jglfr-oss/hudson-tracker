@@ -379,7 +379,7 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh }) {
     <div className="slideUp">
 
       {/* Period picker */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6, marginBottom:16 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6, marginBottom:8 }}>
         {PERIODS.map(p=>(
           <button key={p.days} type="button" onClick={()=>setPeriod(p.days)}
             style={{ padding:"8px 0", borderRadius:20, fontFamily:"inherit", textAlign:"center", fontWeight:800, fontSize:12,
@@ -389,6 +389,11 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh }) {
             {p.label}
           </button>
         ))}
+      </div>
+      <div style={{ fontSize:11, color:C.textLt, textAlign:"center", marginBottom:14, fontStyle:"italic" }}>
+        {all.length < 20
+          ? "📡 Only showing today — data builds up daily as the app stays open"
+          : `Showing ${period}-day window · ${all.length} readings`}
       </div>
 
       {/* Header row */}
@@ -744,7 +749,7 @@ export default function App() {
       `}</style>
 
       <div style={{ fontFamily:"'Nunito',sans-serif", minHeight:"100vh", background:C.offWhite,
-        maxWidth:480, margin:"0 auto", paddingBottom:90 }}>
+        maxWidth:480, margin:"0 auto", paddingBottom:20 }}>
 
         {/* ── Header ── */}
         <div style={{ background:`linear-gradient(160deg,${C.navyDk} 0%,#200040 40%,#2D0057 100%)`,
@@ -996,20 +1001,7 @@ export default function App() {
           {tab==="stats"&&<AnalyticsTab bgHistory={history} ratios={ratios} rangeLow={rangeLow} rangeHigh={rangeHigh}/>}
         </div>
 
-        {/* ── Bottom nav ── */}
-        <div style={{ position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",
-          width:"100%",maxWidth:480,background:C.white,borderTop:`1px solid ${C.border}`,
-          display:"flex",padding:"8px 0 20px",zIndex:50 }}>
-          {[["dose","💉","Calculate"],["log","📋","History"],["stats","📊","Trends"]].map(([id,icon,label])=>(
-            <button key={id} type="button" onClick={()=>setTab(id)}
-              style={{ flex:1,background:"none",border:"none",cursor:"pointer",
-                display:"flex",flexDirection:"column",alignItems:"center",gap:2,fontFamily:"inherit" }}>
-              <div style={{ fontSize:22 }}>{icon}</div>
-              <div style={{ fontSize:11,fontWeight:700,color:tab===id?C.blue:C.textLt }}>{label}</div>
-              {tab===id&&<div style={{ width:20,height:3,borderRadius:2,background:C.blue,marginTop:2 }}/>}
-            </button>
-          ))}
-        </div>
+
       </div>
 
       {showSettings&&(
