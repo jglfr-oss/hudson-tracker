@@ -20,13 +20,14 @@ const C = {
 // ═══ Config ═══════════════════════════════════════════════════════════════════
 const MEALS = [
   { id:"breakfast", label:"Breakfast", icon:"☀️",  defaultRatio:10 },
-  { id:"lunch",     label:"Lunch",     icon:"🌤️", defaultRatio:12 },
-  { id:"dinner",    label:"Dinner",    icon:"🌙",  defaultRatio:12 },
+  { id:"lunch",     label:"Lunch",     icon:"🌤️", defaultRatio:13 },
+  { id:"dinner",    label:"Dinner",    icon:"🌙",  defaultRatio:13 },
   { id:"snack",     label:"Snack",     icon:"🍎",  defaultRatio:15 },
 ];
 
-const TARGET_LOW        = 80;
-const TARGET_HIGH       = 180;
+// These are defaults — overridden by user settings stored in localStore
+let TARGET_LOW  = 80;
+let TARGET_HIGH = 180;
 const CORRECTION_FACTOR = 50;
 const TARGET_BG         = 120;
 const DEXCOM_POLL_MS    = 5 * 60 * 1000;
@@ -276,9 +277,13 @@ function BGTrendChart({ history }) {
 }
 
 // ═══ Analytics Tab ═══════════════════════════════════════════════════════════
-function AnalyticsTab({ bgHistory }) {
-  const [loading, setLoading] = useState(true);
+function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh }) {
+  const [loading,  setLoading ] = useState(true);
   const [readings, setReadings] = useState([]);
+
+  // Apply user-configured ranges to globals
+  TARGET_LOW  = rangeLow;
+  TARGET_HIGH = rangeHigh;
 
   useEffect(() => {
     fetch("/api/bg-store")
@@ -288,7 +293,6 @@ function AnalyticsTab({ bgHistory }) {
       .finally(()=>setLoading(false));
   }, []);
 
-  // Merge stored history with live 3-hr history
   const all = (() => {
     const map = {};
     [...readings, ...(bgHistory||[])].forEach(r => { map[r.ts]=r; });
@@ -296,26 +300,53 @@ function AnalyticsTab({ bgHistory }) {
   })();
 
   const stats = computeStats(all);
+  const DAYS  = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const MEAL_WINDOWS = [
+    { key:"breakfast", label:"Breakfast", icon:"☀️",  hours:"5am–10am"  },
+    { key:"lunch",     label:"Lunch",     icon:"🌤️", hours:"11am–2pm"  },
+    { key:"snack",     label:"Snack",     icon:"🍎",  hours:"2pm–5pm"   },
+    { key:"dinner",    label:"Dinner",    icon:"🌙",  hours:"5pm–9pm"   },
+    { key:"overnight", label:"Overnight", icon:"🌑",  hours:"9pm–5am"   },
+  ];
 
-  const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-  const MEAL_ORDER = ["breakfast","lunch","snack","dinner","overnight"];
+  // Ratio recommendation engine
+  const ratioRec = (mealKey, avgBG) => {
+    if (!avgBG || mealKey === "overnight") return null;
+    const current = ratios[mealKey] ?? 12;
+    const idealBG = 140; // post-meal target
 
-  const tirColor = pct => pct >= 70 ? C.inRange : pct >= 50 ? C.low : C.high;
-
-  const ratioSuggestion = (win, avg) => {
-    if (!avg) return null;
-    if (avg > 180) return "Consider tightening ratio (more insulin)";
-    if (avg < 80)  return "Consider loosening ratio (less insulin)";
-    if (avg > 150) return "Slightly high — small ratio adjustment may help";
-    if (avg < 100) return "Running a bit low — check ratio";
-    return "Looking good!";
+    if (avgBG > rangeHigh) {
+      const suggested = Math.max(5, current - 1);
+      return { type:"high", color:C.high,
+        text:`Running high (avg ${avgBG}). Try tightening to 1:${suggested}g.`,
+        current, suggested };
+    }
+    if (avgBG > idealBG) {
+      return { type:"slightHigh", color:C.low,
+        text:`Slightly elevated (avg ${avgBG}). Current 1:${current}g may need small adjustment.`,
+        current, suggested: Math.max(5, current - 1) };
+    }
+    if (avgBG < rangeLow) {
+      const suggested = current + 2;
+      return { type:"low", color:C.high,
+        text:`Running low (avg ${avgBG}). Loosen to 1:${suggested}g.`,
+        current, suggested };
+    }
+    if (avgBG < 100) {
+      return { type:"slightLow", color:C.low,
+        text:`Trending low (avg ${avgBG}). Consider loosening to 1:${current+1}g.`,
+        current, suggested: current + 1 };
+    }
+    return { type:"good", color:C.inRange,
+      text:`Looking good! Avg ${avgBG} — current 1:${current}g ratio is working.`,
+      current, suggested: null };
   };
 
   if (loading) return (
     <div style={{ textAlign:"center", padding:"60px 0", color:C.textLt }}>
       <div style={{ fontSize:36, marginBottom:12 }}>📊</div>
       <div style={{ fontWeight:700 }}>Loading history…</div>
-      <div style={{ fontSize:12, marginTop:6 }}>Data builds up over time as Hudson wears his sensor</div>
+      <div style={{ fontSize:12, marginTop:6, color:C.textLt }}>Data accumulates every 5 min while app is open</div>
     </div>
   );
 
@@ -324,43 +355,49 @@ function AnalyticsTab({ bgHistory }) {
       <div style={{ fontSize:48, marginBottom:12 }}>📡</div>
       <div style={{ fontWeight:700, fontSize:16, color:C.textDk }}>Not enough data yet</div>
       <div style={{ fontSize:13, marginTop:8, lineHeight:1.5 }}>
-        The app accumulates readings every 5 minutes while it's open.<br/>
-        Come back after a few days for full analytics.
+        Keep the app open — it collects a reading every 5 minutes.<br/>Check back after a few days.
       </div>
-      <div style={{ marginTop:16, background:C.offWhite, borderRadius:14, padding:"12px 16px", fontSize:12, color:C.textMd }}>
+      <div style={{ marginTop:16, background:C.offWhite, borderRadius:14, padding:"12px 16px", fontSize:13, color:C.textMd, fontWeight:700 }}>
         {all.length} readings stored so far
       </div>
     </div>
   );
 
-  const oldestDate = new Date(all[0].ts).toLocaleDateString("en-US",{month:"short",day:"numeric"});
-  const newestDate = new Date(all[all.length-1].ts).toLocaleDateString("en-US",{month:"short",day:"numeric"});
+  const oldest = new Date(all[0].ts).toLocaleDateString("en-US",{month:"short",day:"numeric"});
+  const newest = new Date(all[all.length-1].ts).toLocaleDateString("en-US",{month:"short",day:"numeric"});
 
   return (
     <div className="slideUp">
-      <div style={{ fontSize:11, color:C.textLt, fontWeight:700, marginBottom:12, textAlign:"center" }}>
-        {all.length.toLocaleString()} readings · {oldestDate} — {newestDate}
+
+      {/* Header row */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+        <div style={{ fontSize:11, color:C.textLt, fontWeight:700 }}>
+          {all.length.toLocaleString()} readings · {oldest}–{newest}
+        </div>
+        <div style={{ fontSize:11, color:C.textLt, fontWeight:700 }}>
+          Range: {rangeLow}–{rangeHigh}
+        </div>
       </div>
 
-      {/* Time in range ring */}
-      <Card style={{ marginBottom:12, textAlign:"center" }}>
-        <div style={{ fontWeight:800, color:C.textDk, fontSize:15, marginBottom:16 }}>🎯 Time in Range</div>
-        <div style={{ display:"flex", justifyContent:"center", gap:24, flexWrap:"wrap" }}>
+      {/* Time in Range summary */}
+      <Card style={{ marginBottom:12 }}>
+        <div style={{ fontWeight:800, color:C.textDk, fontSize:15, marginBottom:14 }}>🎯 Time in Range ({rangeLow}–{rangeHigh})</div>
+        <div style={{ display:"flex", gap:0, height:20, borderRadius:10, overflow:"hidden", marginBottom:12 }}>
+          <div style={{ flex:stats.tirPct,  background:C.inRange, transition:"flex .5s" }}/>
+          <div style={{ flex:stats.highPct, background:C.high,    transition:"flex .5s" }}/>
+          <div style={{ flex:stats.lowPct,  background:C.low,     transition:"flex .5s" }}/>
+        </div>
+        <div style={{ display:"flex", justifyContent:"space-between" }}>
           {[
-            { label:"In Range",  pct:stats.tirPct,  color:C.inRange },
-            { label:"High",      pct:stats.highPct, color:C.high    },
-            { label:"Low",       pct:stats.lowPct,  color:C.low     },
+            { label:"In Range", pct:stats.tirPct,  color:C.inRange },
+            { label:"High",     pct:stats.highPct, color:C.high    },
+            { label:"Low",      pct:stats.lowPct,  color:C.low     },
           ].map(s=>(
             <div key={s.label} style={{ textAlign:"center" }}>
-              <div style={{ fontSize:32, fontWeight:900, color:s.color }}>{s.pct}%</div>
-              <div style={{ fontSize:11, color:C.textMd, fontWeight:700 }}>{s.label}</div>
-              <div style={{ height:4, width:60, borderRadius:2, background:s.color+"33", marginTop:4 }}>
-                <div style={{ height:"100%", width:`${s.pct}%`, background:s.color, borderRadius:2 }}/>
-              </div>
+              <div style={{ fontSize:22, fontWeight:900, color:s.color }}>{s.pct}%</div>
+              <div style={{ fontSize:11, color:C.textMd, fontWeight:600 }}>{s.label}</div>
             </div>
           ))}
-        </div>
-        <div style={{ marginTop:16, display:"flex", justifyContent:"center", gap:24 }}>
           <div style={{ textAlign:"center" }}>
             <div style={{ fontSize:22, fontWeight:900, color:C.textDk }}>{stats.avg}</div>
             <div style={{ fontSize:11, color:C.textLt, fontWeight:600 }}>Avg BG</div>
@@ -370,38 +407,77 @@ function AnalyticsTab({ bgHistory }) {
             <div style={{ fontSize:11, color:C.textLt, fontWeight:600 }}>Est. A1c</div>
           </div>
         </div>
-        {stats.tirPct >= 70
-          ? <div style={{ marginTop:12, color:C.inRange, fontSize:12, fontWeight:700 }}>✅ Target achieved (≥70% in range)</div>
-          : <div style={{ marginTop:12, color:C.low,     fontSize:12, fontWeight:700 }}>Goal: get to 70%+ in range</div>
-        }
       </Card>
 
-      {/* Averages by meal time + ratio suggestions */}
+      {/* Ratio analysis by meal time — the main event */}
       <Card style={{ marginBottom:12 }}>
-        <div style={{ fontWeight:800, color:C.textDk, fontSize:15, marginBottom:4 }}>🍽️ Avg BG by Meal Time</div>
-        <div style={{ color:C.textLt, fontSize:11, marginBottom:14 }}>Use these to fine-tune Hudson's ratios</div>
-        {MEAL_ORDER.filter(w => stats.byWindow[w]).map(w => {
-          const avg  = stats.byWindow[w];
-          const meal = MEALS.find(m => m.id === w);
-          const icon = meal?.icon ?? (w==="overnight"?"🌑":"🕐");
-          const suggestion = ratioSuggestion(w, avg);
-          const color = avg < TARGET_LOW ? C.low : avg > TARGET_HIGH ? C.high : C.inRange;
+        <div style={{ fontWeight:800, color:C.textDk, fontSize:15, marginBottom:4 }}>💉 Ratio Analysis by Meal</div>
+        <div style={{ color:C.textLt, fontSize:11, marginBottom:16 }}>
+          Based on avg BG during each meal window. Adjust ratios in ⚙️ Settings.
+        </div>
+        {MEAL_WINDOWS.filter(w => stats.byWindow[w.key]).map((w, idx) => {
+          const avg = stats.byWindow[w.key];
+          const rec = ratioRec(w.key, avg);
+          const bgColor = avg < rangeLow ? C.low : avg > rangeHigh ? C.high : C.inRange;
+          const currentRatio = ratios[w.key];
           return (
-            <div key={w} style={{ marginBottom:14, paddingBottom:14, borderBottom:`1px solid ${C.border}` }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
-                <div style={{ fontWeight:700, color:C.textDk, fontSize:14 }}>
-                  {icon} {w.charAt(0).toUpperCase()+w.slice(1)}
+            <div key={w.key} style={{ marginBottom: idx < MEAL_WINDOWS.length-1 ? 18 : 0,
+              paddingBottom: idx < MEAL_WINDOWS.length-1 ? 18 : 0,
+              borderBottom: idx < MEAL_WINDOWS.length-1 ? `1px solid ${C.border}` : "none" }}>
+
+              {/* Meal header row */}
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+                <div>
+                  <div style={{ fontWeight:800, color:C.textDk, fontSize:14 }}>{w.icon} {w.label}</div>
+                  <div style={{ fontSize:10, color:C.textLt, fontWeight:600 }}>{w.hours}</div>
                 </div>
-                <div style={{ fontSize:24, fontWeight:900, color }}>{avg} <span style={{ fontSize:12, color:C.textLt, fontWeight:500 }}>mg/dL</span></div>
+                <div style={{ textAlign:"right" }}>
+                  <div style={{ fontSize:26, fontWeight:900, color:bgColor, lineHeight:1 }}>{avg}</div>
+                  <div style={{ fontSize:10, color:C.textLt }}>mg/dL avg</div>
+                </div>
               </div>
-              {/* BG bar */}
-              <div style={{ height:6, background:C.offWhite, borderRadius:3, marginBottom:6 }}>
-                <div style={{ height:"100%", width:`${Math.min((avg/320)*100,100)}%`,
-                  background:color, borderRadius:3, transition:"width .5s" }}/>
+
+              {/* BG position bar */}
+              <div style={{ position:"relative", height:8, background:C.offWhite, borderRadius:4, marginBottom:8 }}>
+                {/* in-range zone */}
+                <div style={{ position:"absolute", left:`${(rangeLow/320)*100}%`,
+                  width:`${((rangeHigh-rangeLow)/320)*100}%`,
+                  height:"100%", background:C.inRange+"33", borderRadius:4 }}/>
+                {/* avg dot */}
+                <div style={{ position:"absolute", top:-2, width:12, height:12, borderRadius:"50%",
+                  background:bgColor, border:"2px solid #fff", boxShadow:`0 0 6px ${bgColor}88`,
+                  left:`${Math.min((avg/320)*100,95)}%`, transform:"translateX(-50%)" }}/>
               </div>
-              <div style={{ fontSize:11, color: suggestion?.includes("good")||suggestion?.includes("good")?"#27AE60":color, fontWeight:600 }}>
-                💡 {suggestion}
-              </div>
+
+              {/* Current ratio + recommendation */}
+              {w.key !== "overnight" && (
+                <div style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
+                  <div style={{ background:C.offWhite, borderRadius:10, padding:"6px 12px",
+                    fontSize:12, fontWeight:800, color:C.textMd, flexShrink:0 }}>
+                    Current: 1:{currentRatio}g
+                  </div>
+                  {rec && (
+                    <div style={{ flex:1, background:rec.color+"11", border:`1.5px solid ${rec.color}33`,
+                      borderRadius:10, padding:"6px 10px", fontSize:11, fontWeight:700, color:rec.color,
+                      lineHeight:1.4 }}>
+                      {rec.type==="good" ? "✅ " : rec.type==="high"||rec.type==="low" ? "⚠️ " : "💡 "}
+                      {rec.text}
+                      {rec.suggested && rec.type!=="good" && (
+                        <div style={{ marginTop:4, color:C.textMd, fontWeight:600, fontSize:10 }}>
+                          Suggested: 1:{rec.suggested}g — confirm with endo before changing
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              {w.key === "overnight" && (
+                <div style={{ fontSize:11, color:C.textMd, fontWeight:600, lineHeight:1.4 }}>
+                  {avg > rangeHigh ? "⚠️ High overnight — discuss basal rate with endo"
+                   : avg < rangeLow ? "⚠️ Low overnight — discuss basal rate with endo"
+                   : "✅ Overnight numbers look solid"}
+                </div>
+              )}
             </div>
           );
         })}
@@ -409,7 +485,7 @@ function AnalyticsTab({ bgHistory }) {
 
       {/* Day of week */}
       <Card style={{ marginBottom:12 }}>
-        <div style={{ fontWeight:800, color:C.textDk, fontSize:15, marginBottom:14 }}>📅 Avg BG by Day of Week</div>
+        <div style={{ fontWeight:800, color:C.textDk, fontSize:15, marginBottom:14 }}>📅 Avg BG by Day</div>
         <div style={{ display:"flex", gap:4, alignItems:"flex-end", height:80 }}>
           {stats.dayAvgs.map((avg,i)=>{
             if (!avg) return (
@@ -419,11 +495,11 @@ function AnalyticsTab({ bgHistory }) {
               </div>
             );
             const h   = Math.max(12, Math.min(70, ((avg-60)/260)*70));
-            const col = avg<TARGET_LOW?C.low:avg>TARGET_HIGH?C.high:C.inRange;
+            const col = avg<rangeLow?C.low:avg>rangeHigh?C.high:C.inRange;
             return (
               <div key={i} style={{ flex:1, textAlign:"center", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"flex-end" }}>
                 <div style={{ fontSize:9, fontWeight:800, color:col, marginBottom:2 }}>{avg}</div>
-                <div style={{ width:"100%", height:h, background:col, borderRadius:"4px 4px 0 0", opacity:0.8 }}/>
+                <div style={{ width:"100%", height:h, background:col, borderRadius:"4px 4px 0 0", opacity:0.85 }}/>
                 <div style={{ fontSize:9, color:C.textLt, fontWeight:600, marginTop:3 }}>{DAYS[i]}</div>
               </div>
             );
@@ -431,31 +507,9 @@ function AnalyticsTab({ bgHistory }) {
         </div>
       </Card>
 
-      {/* Overnight analysis */}
-      {stats.byWindow.overnight && (
-        <Card style={{ marginBottom:12 }}>
-          <div style={{ fontWeight:800, color:C.textDk, fontSize:15, marginBottom:8 }}>🌑 Overnight Patterns</div>
-          <div style={{ display:"flex", justifyContent:"space-between" }}>
-            <div>
-              <div style={{ fontSize:22, fontWeight:900, color: stats.byWindow.overnight < TARGET_LOW ? C.low : stats.byWindow.overnight > TARGET_HIGH ? C.high : C.inRange }}>
-                {stats.byWindow.overnight}
-              </div>
-              <div style={{ fontSize:11, color:C.textLt }}>Avg overnight BG</div>
-            </div>
-            <div style={{ fontSize:12, color:C.textMd, maxWidth:180, lineHeight:1.5, textAlign:"right" }}>
-              {stats.byWindow.overnight > 150
-                ? "Running high overnight — consider basal adjustment with his endo"
-                : stats.byWindow.overnight < 90
-                ? "Running low overnight — discuss with endo"
-                : "Overnight numbers look solid"}
-            </div>
-          </div>
-        </Card>
-      )}
-
       <div style={{ textAlign:"center", color:C.textLt, fontSize:11, paddingBottom:20, lineHeight:1.6 }}>
-        Data updates every 5 min while app is open<br/>
-        Always review ratio changes with Hudson's endocrinologist
+        Readings accumulate every 5 min while app is open<br/>
+        Always confirm ratio changes with Hudson's endocrinologist
       </div>
     </div>
   );
@@ -480,7 +534,7 @@ function QuoteBanner() {
 }
 
 // ═══ Settings Modal ═══════════════════════════════════════════════════════════
-function SettingsModal({ ratios, setRatios, alertNumbers, setAlertNumbers, onClose }) {
+function SettingsModal({ ratios, setRatios, alertNumbers, setAlertNumbers, rangeLow, setRangeLow, rangeHigh, setRangeHigh, onClose }) {
   const [local, setLocal]               = useState({ ...ratios });
   const [localNumbers, setLocalNumbers] = useState([...alertNumbers]);
 
@@ -511,6 +565,20 @@ function SettingsModal({ ratios, setRatios, alertNumbers, setAlertNumbers, onClo
 
         <div style={{ background:C.offWhite, borderRadius:12, padding:"10px 14px", color:C.textMd, fontSize:12, marginBottom:24 }}>
           📐 Correction: 1u drops BG by {CORRECTION_FACTOR} mg/dL · Target: {TARGET_BG} mg/dL
+        </div>
+
+        {/* BG Target Range */}
+        <div style={{ marginBottom:24 }}>
+          <div style={{ fontWeight:900, fontSize:16, color:C.textDk, marginBottom:4 }}>🎯 Target BG Range</div>
+          <div style={{ color:C.textMd, fontSize:12, marginBottom:16 }}>Used for Time in Range and Trends analysis</div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+            <div style={{ fontWeight:700, color:C.textDk, fontSize:15 }}>🟡 Low threshold</div>
+            <NumPad value={rangeLow} onChange={setRangeLow} step={5} min={60} max={100} unit=""/>
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div style={{ fontWeight:700, color:C.textDk, fontSize:15 }}>🔴 High threshold</div>
+            <NumPad value={rangeHigh} onChange={setRangeHigh} step={5} min={140} max={250} unit=""/>
+          </div>
         </div>
 
         {/* Alert Numbers */}
@@ -584,6 +652,8 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [confirmed,    setConfirmed   ] = useState(false);
   const [alertNumbers, setAlertNumbers] = useState(()=>localStore.get("hud-alert-numbers",["2674812133"]));
+  const [rangeLow,     setRangeLow    ] = useState(()=>localStore.get("hud-range-low",  80));
+  const [rangeHigh,    setRangeHigh   ] = useState(()=>localStore.get("hud-range-high", 180));
   const [dex,          setDex         ] = useState(null);
   const [dexLoading,   setDexLoading  ] = useState(true);
   const [dexError,     setDexError    ] = useState(null);
@@ -780,13 +850,12 @@ export default function App() {
           ))}
         </div>
 
-        <div style={{ padding:"16px 16px 0" }}><QuoteBanner /></div>
-
         <div style={{ padding:"0 16px" }}>
 
           {/* ══ DOSE ══ */}
           {tab==="dose"&&(
             <div className="slideUp">
+              <div style={{ padding:"0 0 14px" }}><QuoteBanner /></div>
               <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14 }}>
                 {MEALS.map(m=>(
                   <button key={m.id} type="button" onClick={()=>setMealId(m.id)}
@@ -924,7 +993,7 @@ export default function App() {
           )}
 
           {/* ══ ANALYTICS ══ */}
-          {tab==="stats"&&<AnalyticsTab bgHistory={history}/>}
+          {tab==="stats"&&<AnalyticsTab bgHistory={history} ratios={ratios} rangeLow={rangeLow} rangeHigh={rangeHigh}/>}
         </div>
 
         {/* ── Bottom nav ── */}
@@ -946,6 +1015,8 @@ export default function App() {
       {showSettings&&(
         <SettingsModal ratios={ratios} setRatios={saveRatios}
           alertNumbers={alertNumbers} setAlertNumbers={saveAlertNumbers}
+          rangeLow={rangeLow}   setRangeLow={v=>{setRangeLow(v);   localStore.set("hud-range-low",v);}}
+          rangeHigh={rangeHigh} setRangeHigh={v=>{setRangeHigh(v); localStore.set("hud-range-high",v);}}
           onClose={()=>setShowSettings(false)}/>
       )}
     </>
