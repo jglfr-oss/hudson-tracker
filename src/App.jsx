@@ -294,10 +294,13 @@ const PRESET_PERIODS = [
 ];
 
 function toDateInputVal(ts) {
-  return new Date(ts).toISOString().slice(0,10);
+  const d = new Date(ts);
+  const pad = n => String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
 }
 function fromDateInputVal(s) {
-  return new Date(s).getTime();
+  const [y,m,d] = s.split('-').map(Number);
+  return new Date(y, m-1, d).getTime();
 }
 
 function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
@@ -406,7 +409,12 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
       <div style={{ marginBottom:14 }}>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:6, marginBottom:8 }}>
           {PRESET_PERIODS.map(p=>(
-            <button key={p.days} type="button" onClick={()=>{ setPeriod(p.days); setUseCustom(false); }}
+            <button key={p.days} type="button" onClick={()=>{
+              setPeriod(p.days);
+              setUseCustom(false);
+              setCustomFrom(toDateInputVal(Date.now() - p.days*24*60*60*1000));
+              setCustomTo(toDateInputVal(Date.now()));
+            }}
               style={{ padding:"8px 0", borderRadius:20, fontFamily:"inherit", textAlign:"center", fontWeight:800, fontSize:12,
                 border: (!useCustom && period===p.days) ? `2px solid ${C.blue}` : `1.5px solid ${C.border}`,
                 background: (!useCustom && period===p.days) ? `${C.blue}18` : C.offWhite,
@@ -549,6 +557,29 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
           );
         })}
       </Card>
+
+      {readings.length > 0 && readings.length < 5000 && (
+        <div style={{ textAlign:"center", marginBottom:16 }}>
+          <div style={{ fontSize:11, color:C.textLt, marginBottom:8 }}>
+            Only {readings.length.toLocaleString()} readings stored — history may be truncated
+          </div>
+          <button type="button" onClick={async () => {
+            setLoading(true);
+            try {
+              const r = await fetch("/api/seed");
+              const j = await r.json();
+              if (j.stored) {
+                const updated = await fetch("/api/bg-store").then(x=>x.json());
+                if (Array.isArray(updated)) setReadings(updated);
+              }
+            } catch(e) { console.error(e); }
+            setLoading(false);
+          }} style={{
+            background: C.blue, color:"#fff", border:"none", borderRadius:20,
+            padding:"8px 20px", fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"inherit"
+          }}>🔄 Restore 90-Day History</button>
+        </div>
+      )}
 
       <div style={{ textAlign:"center", color:C.textLt, fontSize:11, paddingBottom:20, lineHeight:1.6 }}>
         Readings accumulate every 5 min while app is open<br/>
