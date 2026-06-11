@@ -558,31 +558,8 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
         })}
       </Card>
 
-      {readings.length > 0 && readings.length < 5000 && (
-        <div style={{ textAlign:"center", marginBottom:16 }}>
-          <div style={{ fontSize:11, color:C.textLt, marginBottom:8 }}>
-            Only {readings.length.toLocaleString()} readings stored — history may be truncated
-          </div>
-          <button type="button" onClick={async () => {
-            setLoading(true);
-            try {
-              const r = await fetch("/api/seed");
-              const j = await r.json();
-              if (j.stored) {
-                const updated = await fetch("/api/bg-store").then(x=>x.json());
-                if (Array.isArray(updated)) setReadings(updated);
-              }
-            } catch(e) { console.error(e); }
-            setLoading(false);
-          }} style={{
-            background: C.blue, color:"#fff", border:"none", borderRadius:20,
-            padding:"8px 20px", fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"inherit"
-          }}>🔄 Restore 90-Day History</button>
-        </div>
-      )}
-
       <div style={{ textAlign:"center", color:C.textLt, fontSize:11, paddingBottom:20, lineHeight:1.6 }}>
-        Readings accumulate every 5 min while app is open<br/>
+        {readings.length.toLocaleString()} readings stored · accumulates every 5 min<br/>
         Always confirm ratio changes with Hudson's endocrinologist
       </div>
     </div>
@@ -604,6 +581,43 @@ function QuoteBanner() {
       <div style={{ fontSize:15, fontWeight:700, color:"#fff", lineHeight:1.5, marginBottom:8 }}>"{q.text}"</div>
       <div style={{ fontSize:11, color:"rgba(255,255,255,0.45)", fontStyle:"italic" }}>— {q.attr}</div>
     </div>
+  );
+}
+
+// ═══ Seed Button ═════════════════════════════════════════════════════════════
+function SeedButton() {
+  const [status, setStatus] = useState("idle"); // idle | loading | done | error
+  const [count,  setCount ] = useState(0);
+
+  const run = async () => {
+    setStatus("loading");
+    try {
+      const r = await fetch("/api/seed");
+      const j = await r.json();
+      if (j.stored) { setCount(j.stored); setStatus("done"); }
+      else setStatus("error");
+    } catch { setStatus("error"); }
+  };
+
+  if (status === "done") return (
+    <div style={{ background:"#27AE6011", border:"1.5px solid #27AE6033", borderRadius:12,
+      padding:"10px 14px", fontSize:12, fontWeight:700, color:"#27AE60", textAlign:"center" }}>
+      ✅ {count.toLocaleString()} readings imported successfully
+    </div>
+  );
+
+  return (
+    <button type="button" onClick={run} disabled={status==="loading"}
+      style={{ width:"100%", padding:"11px 0", borderRadius:12, fontFamily:"inherit",
+        background: status==="error" ? "#FFF0F0" : `linear-gradient(135deg,${C.blue},#C060F0)`,
+        color: status==="error" ? C.high : "#fff",
+        border: status==="error" ? `1.5px solid #F5CCCC` : "none",
+        fontWeight:800, fontSize:13, cursor:status==="loading"?"not-allowed":"pointer",
+        opacity:status==="loading"?0.7:1 }}>
+      {status==="loading" ? "⏳ Importing… this takes ~30 seconds"
+       : status==="error"  ? "⚠️ Import failed — tap to retry"
+       : "🔄 Re-import 90-Day History"}
+    </button>
   );
 }
 
@@ -713,6 +727,15 @@ function SettingsModal({ ratios, setRatios, alertNumbers, setAlertNumbers, range
             style={{ background:C.offWhite, border:`1.5px dashed ${C.border}`, borderRadius:12,
               padding:"8px 16px", color:C.blue, fontWeight:700, fontSize:13,
               cursor:"pointer", fontFamily:"inherit", width:"100%" }}>+ Add Number</button>
+        </div>
+
+        {/* Re-import history */}
+        <div style={{ marginBottom:24 }}>
+          <div style={{ fontWeight:900, fontSize:16, color:C.textDk, marginBottom:4 }}>📂 BG History</div>
+          <div style={{ color:C.textMd, fontSize:12, marginBottom:12 }}>
+            Re-import the 90-day Sugarmate export (Mar 13 – Jun 11, 2026)
+          </div>
+          <SeedButton />
         </div>
 
         <div style={{ display:"flex", gap:12 }}>
