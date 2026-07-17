@@ -284,6 +284,155 @@ function BGTrendChart({ history }) {
   );
 }
 
+// ═══ High/Low Trend — raw daily counts, filterable by time-of-day ════════════
+const HL_FILTERS = [
+  { key:"all",       label:"All Day" },
+  { key:"daytime",   label:"Daytime" },
+  { key:"overnight", label:"Overnight" },
+];
+
+function dayKeyOf(ts) {
+  const d = new Date(ts);
+  const pad = n => String(n).padStart(2,"0");
+  return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+}
+
+function HighLowTrend({ readings, rangeLow, rangeHigh, mealWindows }) {
+  const [filter,  setFilter ] = useState("all");
+  const [tooltip, setTooltip] = useState(null);
+
+  if (!readings || readings.length === 0) return null;
+
+  // Overnight = any hour that isn't inside a configured meal window (matches Trends math)
+  const inSegment = ts => {
+    if (filter === "all") return true;
+    const isOvernight = mealWindowFor(new Date(ts).getHours(), mealWindows) === "overnight";
+    return filter === "overnight" ? isOvernight : !isOvernight;
+  };
+
+  // Build one bucket per calendar day across the whole data range,
+  // so the x-axis stays put when the filter changes — only bar heights move.
+  const sorted   = [...readings].sort((a,b)=>a.ts-b.ts);
+  const firstDay = new Date(sorted[0].ts);                     firstDay.setHours(0,0,0,0);
+  const lastDay  = new Date(sorted[sorted.length-1].ts);       lastDay.setHours(0,0,0,0);
+
+  const days  = [];
+  const byKey = {};
+  for (let cur=new Date(firstDay); cur<=lastDay; cur.setDate(cur.getDate()+1)) {
+    const bucket = { ts:cur.getTime(), key:dayKeyOf(cur.getTime()), high:0, low:0 };
+    days.push(bucket);
+    byKey[bucket.key] = bucket;
+  }
+
+  readings.forEach(r => {
+    if (!inSegment(r.ts)) return;
+    const d = byKey[dayKeyOf(r.ts)];
+    if (!d) return;
+    if      (r.value > rangeHigh) d.high += 1;
+    else if (r.value < rangeLow)  d.low  += 1;
+  });
+
+  const totalHigh = days.reduce((s,d)=>s+d.high,0);
+  const totalLow  = days.reduce((s,d)=>s+d.low,0);
+  const maxCount  = Math.max(1, ...days.map(d=>Math.max(d.high,d.low)));
+
+  // Geometry — diverging bars: highs point up (red), lows point down (gold)
+  const W=440, H=176, PAD={ top:18, right:8, bottom:24, left:8 };
+  const cW=W-PAD.left-PAD.right, cH=H-PAD.top-PAD.bottom;
+  const zeroY = PAD.top + cH/2;
+  const halfH = cH/2 - 5;
+  const n     = days.length;
+  const slot  = cW / n;
+  const barW  = Math.max(1.5, Math.min(slot*0.7, 14));
+  const xOf   = i => PAD.left + slot*i + slot/2;
+  const labelIdx = n<=1 ? [0] : [0, Math.floor((n-1)/2), n-1];
+
+  const handleTouch = e => {
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const cx   = e.touches ? e.touches[0].clientX : e.clientX;
+    const svgX = ((cx-rect.left)/rect.width)*W;
+    const i    = Math.max(0, Math.min(n-1, Math.floor((svgX-PAD.left)/slot)));
+    setTooltip(days[i] ? { ...days[i], i } : null);
+  };
+
+  const fmtDay  = ts => new Date(ts).toLocaleDateString("en-US",{month:"short",day:"numeric"});
+  const toHours = c  => (c*5/60); // ~5-min reading cadence → hours
+
+  return (
+    <Card style={{ marginBottom:12 }}>
+      <div style={{ fontWeight:800, color:C.textDk, fontSize:15, marginBottom:4 }}>📈 Highs & Lows Over Time</div>
+      <div style={{ color:C.textLt, fontSize:11, marginBottom:12 }}>
+        Daily count of readings above {rangeHigh} or below {rangeLow}
+      </div>
+
+      {/* Time-of-day filter */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:6, marginBottom:14 }}>
+        {HL_FILTERS.map(f=>(
+          <button key={f.key} type="button" onClick={()=>{ setFilter(f.key); setTooltip(null); }}
+            style={{ padding:"7px 0", borderRadius:20, fontFamily:"inherit", textAlign:"center", fontWeight:800, fontSize:12,
+              border: filter===f.key ? `2px solid ${C.blue}` : `1.5px solid ${C.border}`,
+              background: filter===f.key ? `${C.blue}18` : C.offWhite,
+              color: filter===f.key ? C.blue : C.textMd, cursor:"pointer" }}>
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Totals for the selected window + segment */}
+      <div style={{ display:"flex", gap:10, marginBottom:12 }}>
+        <div style={{ flex:1, textAlign:"center", background:C.high+"11", border:`1.5px solid ${C.high}33`, borderRadius:12, padding:"8px 6px" }}>
+          <div style={{ fontSize:22, fontWeight:900, color:C.high, lineHeight:1 }}>{totalHigh.toLocaleString()}</div>
+          <div style={{ fontSize:10, color:C.textMd, fontWeight:700, marginTop:3 }}>high readings · ≈{toHours(totalHigh).toFixed(0)}h</div>
+        </div>
+        <div style={{ flex:1, textAlign:"center", background:C.low+"11", border:`1.5px solid ${C.low}33`, borderRadius:12, padding:"8px 6px" }}>
+          <div style={{ fontSize:22, fontWeight:900, color:C.low, lineHeight:1 }}>{totalLow.toLocaleString()}</div>
+          <div style={{ fontSize:10, color:C.textMd, fontWeight:700, marginTop:3 }}>low readings · ≈{toHours(totalLow).toFixed(0)}h</div>
+        </div>
+      </div>
+
+      {/* Diverging bar chart */}
+      <svg viewBox={`0 0 ${W} ${H}`}
+        style={{ width:"100%", height:"auto", display:"block", overflow:"visible", touchAction:"none" }}
+        onTouchStart={handleTouch} onTouchMove={handleTouch} onClick={handleTouch}>
+        <line x1={PAD.left} y1={zeroY} x2={PAD.left+cW} y2={zeroY} stroke={C.border} strokeWidth="1"/>
+        {days.map((d,i)=>{
+          const x  = xOf(i);
+          const hH = (d.high/maxCount)*halfH;
+          const lH = (d.low /maxCount)*halfH;
+          const active = tooltip?.i===i;
+          return (
+            <g key={d.key}>
+              {active && <rect x={x-slot/2} y={PAD.top} width={slot} height={cH} fill={C.blue} opacity="0.07"/>}
+              {d.high>0 && <rect x={x-barW/2} y={zeroY-hH} width={barW} height={hH} rx={barW>3?1.5:0} fill={C.high} opacity={active?1:0.85}/>}
+              {d.low >0 && <rect x={x-barW/2} y={zeroY}    width={barW} height={lH} rx={barW>3?1.5:0} fill={C.low}  opacity={active?1:0.85}/>}
+            </g>
+          );
+        })}
+        <text x={PAD.left+2} y={PAD.top-5} fontSize="9" fill={C.high} fontWeight="800" fontFamily="Nunito,sans-serif">▲ highs</text>
+        <text x={PAD.left+2} y={H-PAD.bottom+13} fontSize="9" fill={C.low} fontWeight="800" fontFamily="Nunito,sans-serif">▼ lows</text>
+        {labelIdx.map((i,k)=>(
+          <text key={k} x={xOf(i)} y={H-4} fontSize="9" fill={C.textLt} fontWeight="600" fontFamily="Nunito,sans-serif"
+            textAnchor={k===0?"start":k===labelIdx.length-1?"end":"middle"}>
+            {fmtDay(days[i].ts)}
+          </text>
+        ))}
+      </svg>
+
+      {/* Tap readout */}
+      <div style={{ textAlign:"center", marginTop:6, minHeight:18 }}>
+        {tooltip ? (
+          <span style={{ fontSize:12, fontWeight:700, color:C.textMd }}>
+            {fmtDay(tooltip.ts)} — <span style={{ color:C.high }}>{tooltip.high} high</span> · <span style={{ color:C.low }}>{tooltip.low} low</span>
+          </span>
+        ) : (
+          <span style={{ fontSize:11, color:C.textLt }}>Tap any day for its exact counts</span>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 // ═══ Analytics Tab ═══════════════════════════════════════════════════════════
 const PRESET_PERIODS = [
   { label:"7D",  days:7  },
@@ -557,6 +706,9 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
           );
         })}
       </Card>
+
+      {/* Highs & lows over time — raw daily counts */}
+      <HighLowTrend readings={all} rangeLow={rangeLow} rangeHigh={rangeHigh} mealWindows={mealWindows}/>
 
       <div style={{ textAlign:"center", color:C.textLt, fontSize:11, paddingBottom:20, lineHeight:1.6 }}>
         {readings.length.toLocaleString()} readings stored · accumulates every 5 min<br/>
