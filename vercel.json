@@ -11,3 +11,9 @@
     }
   ]
 }
+{
+  "crons": [
+    { "path": "/api/weekly-report", "schedule": "0 9 * * 0" },
+    { "path": "/api/cron-collect",  "schedule": "*/15 * * * *" }
+  ]
+}
