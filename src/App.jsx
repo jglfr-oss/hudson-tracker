@@ -296,80 +296,199 @@ function NumPad({ value, onChange, step=1, min=0, max=500, unit="" }) {
   );
 }
 
-// ═══ BG Sparkline with touch tooltips ════════════════════════════════════════
-function BGTrendChart({ history }) {
-  const [tooltip, setTooltip] = useState(null);
-  if (!history || history.length < 2) return null;
+// ═══ BG Chart — pannable, hoverable, with day picker ═════════════════════════
+const CHART_WINDOWS = [
+  { label:"3h",  ms: 3*3600000  },
+  { label:"6h",  ms: 6*3600000  },
+  { label:"12h", ms: 12*3600000 },
+  { label:"24h", ms: 24*3600000 },
+];
 
-  const W=440, H=140, PAD={ top:20, right:36, bottom:24, left:10 };
+function BGChart({ live, store }) {
+  const [winMs,   setWinMs  ] = useState(3*3600000);
+  const [endTs,   setEndTs  ] = useState(null);   // null = live (pinned to now)
+  const [tip,     setTip    ] = useState(null);
+  const [showCal, setShowCal] = useState(false);
+  const dragRef = useRef(null);
+
+  // Merge the live feed with the stored history, newest wins on duplicates.
+  const data = (() => {
+    const map = {};
+    (store||[]).forEach(r => { if (r && typeof r.ts==="number") map[r.ts]=r; });
+    (live ||[]).forEach(r => { if (r && typeof r.ts==="number") map[r.ts]=r; });
+    return Object.values(map).sort((a,b)=>a.ts-b.ts);
+  })();
+  if (data.length < 2) return null;
+
+  const dataMin = data[0].ts, dataMax = data[data.length-1].ts;
+  const isLive  = endTs === null;
+  const right   = isLive ? Math.max(dataMax, Date.now()) : endTs;
+  const left    = right - winMs;
+
+  const pts = data.filter(r => r.ts >= left && r.ts <= right);
+
+  // Geometry
+  const W=440, H=150, PAD={ top:14, right:34, bottom:22, left:8 };
   const cW=W-PAD.left-PAD.right, cH=H-PAD.top-PAD.bottom;
-  const sorted=[...history].sort((a,b)=>a.ts-b.ts);
-  const minTs=sorted[0].ts, tsR=(sorted[sorted.length-1].ts-minTs)||1;
-  const xS = ts  => PAD.left+((ts-minTs)/tsR)*cW;
-  const yS = val => PAD.top+cH-((Math.min(Math.max(val,40),320)-40)/280)*cH;
-  const dc  = v  => v<TARGET_LOW?C.high:v>TARGET_HIGH?C.low:C.textDk;
+  const xS = ts  => PAD.left + ((ts-left)/winMs)*cW;
+  const yS = val => PAD.top + cH - ((Math.min(Math.max(val,40),400)-40)/360)*cH;
+  const dc = v   => v<TARGET_LOW?C.high:v>TARGET_HIGH?C.low:C.textDk;
   const yH=yS(TARGET_HIGH), yL=yS(TARGET_LOW);
-  const pts=sorted.map(r=>({ x:xS(r.ts), y:yS(r.value), v:r.value,
-    time:new Date(r.ts).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}) }));
-  const path=pts.map((p,i)=>`${i===0?"M":"L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
-  const latest=pts[pts.length-1];
-  const tLbls=[0,Math.floor(sorted.length/2),sorted.length-1].map(i=>({
-    x:xS(sorted[i].ts), label:new Date(sorted[i].ts).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})
-  }));
 
-  const handleTouch = e => {
-    e.preventDefault();
-    const svg=e.currentTarget, rect=svg.getBoundingClientRect();
-    const cx=(e.touches?e.touches[0].clientX:e.clientX);
-    const svgX=((cx-rect.left)/rect.width)*W;
-    let closest=null, minD=Infinity;
-    pts.forEach(p=>{ const d=Math.abs(p.x-svgX); if(d<minD){minD=d;closest=p;} });
-    if(closest&&minD<30) setTooltip(closest); else setTooltip(null);
+  const shown = pts.map(r=>({ x:xS(r.ts), y:yS(r.value), v:r.value, ts:r.ts }));
+
+  // Time axis: tick count adapts to the window width
+  const tickCount = winMs <= 6*3600000 ? 4 : winMs <= 12*3600000 ? 5 : 5;
+  const ticks = Array.from({length:tickCount+1},(_,i)=>{
+    const ts = left + (winMs*i)/tickCount;
+    return { x: xS(ts),
+      label: new Date(ts).toLocaleTimeString([], { hour:"numeric", minute: winMs<=6*3600000 ? "2-digit" : undefined }) };
+  });
+
+  const pan = dir => {
+    const step = winMs * 0.5;
+    const base = isLive ? Math.max(dataMax, Date.now()) : endTs;
+    const next = base + dir*step;
+    if (next >= Math.max(dataMax, Date.now())) setEndTs(null);
+    else setEndTs(Math.max(dataMin + winMs, next));
   };
 
-  const tx=tooltip?Math.min(Math.max(tooltip.x,30),W-50):0;
-  const ty=tooltip?Math.max(tooltip.y-28,PAD.top):0;
+  const locate = clientX => {
+    const el = dragRef.current;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    const svgX = ((clientX-rect.left)/rect.width)*W;
+    let best=null, bd=Infinity;
+    shown.forEach(p=>{ const d=Math.abs(p.x-svgX); if(d<bd){bd=d;best=p;} });
+    return best && bd < 26 ? best : null;
+  };
+
+  // Drag to scroll through time
+  const startRef = useRef(null);
+  const onDown = e => {
+    const cx = e.touches ? e.touches[0].clientX : e.clientX;
+    startRef.current = { cx, end: isLive ? Math.max(dataMax, Date.now()) : endTs };
+  };
+  const onMove = e => {
+    const cx = e.touches ? e.touches[0].clientX : e.clientX;
+    if (startRef.current) {
+      const el = dragRef.current;
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        const dxFrac = (cx - startRef.current.cx) / rect.width;
+        if (Math.abs(dxFrac) > 0.01) {
+          const next = startRef.current.end - dxFrac*winMs;
+          if (next >= Math.max(dataMax, Date.now())) setEndTs(null);
+          else setEndTs(Math.max(dataMin + winMs, next));
+          setTip(null);
+          return;
+        }
+      }
+    }
+    setTip(locate(cx));
+  };
+  const onUp = () => { startRef.current = null; };
+
+  const dayVal = new Date(right);
+  const pad2n = n => String(n).padStart(2,"0");
+  const dayStr = dayVal.getFullYear()+"-"+pad2n(dayVal.getMonth()+1)+"-"+pad2n(dayVal.getDate());
+
+  const tx = tip ? Math.min(Math.max(tip.x,44), W-52) : 0;
+  const ty = tip ? Math.max(tip.y-30, PAD.top+10) : 0;
+
+  const chip = (active) => ({
+    padding:"4px 10px", borderRadius:14, border:"none", cursor:"pointer",
+    fontFamily:"inherit", fontWeight:700, fontSize:11,
+    background: active ? C.textDk : C.tile, color: active ? "#fff" : C.textMd,
+  });
 
   return (
-    <div style={{ background:C.white, borderRadius:12, padding:"4px 0 0" }} onClick={()=>setTooltip(null)}>
-      <svg viewBox={`0 0 ${W} ${H}`}
-        style={{ width:"100%", height:"auto", display:"block", overflow:"visible", touchAction:"none" }}
-        onTouchStart={handleTouch} onTouchMove={handleTouch} onClick={handleTouch}>
-        <rect x={PAD.left} y={yH} width={cW} height={yL-yH} fill={C.band} rx="2"/>
-        <line x1={PAD.left} y1={yH} x2={PAD.left+cW} y2={yH} stroke={C.border} strokeWidth="1"/>
-        <line x1={PAD.left} y1={yL} x2={PAD.left+cW} y2={yL} stroke={C.high} strokeWidth="1"/>
-        <text x={W-PAD.right+4} y={yH+4} fontSize="9" fill={C.textLt} fontWeight="500">{TARGET_HIGH}</text>
-        <text x={W-PAD.right+4} y={yL+4} fontSize="9" fill={C.textLt} fontWeight="500">{TARGET_LOW}</text>
-        {pts.length>1&&<path d={path} fill="none" stroke="none" strokeWidth="0" strokeLinecap="round" strokeLinejoin="round"/>}
-        {pts.map((p,i)=>(
-          <g key={i}>
-            <circle cx={p.x.toFixed(1)} cy={p.y.toFixed(1)} r="12" fill="transparent"/>
-            <circle cx={p.x.toFixed(1)} cy={p.y.toFixed(1)}
-              r={tooltip?.x===p.x?5:2.4}
-              fill={dc(p.v)}
-              stroke={tooltip?.x===p.x?C.textDk:"none"}
-              strokeWidth={tooltip?.x===p.x?2:0} opacity="1"/>
-          </g>
+    <div>
+      {/* Controls */}
+      <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:8, flexWrap:"wrap" }}>
+        {CHART_WINDOWS.map(w=>(
+          <button key={w.label} type="button" style={chip(winMs===w.ms)}
+            onClick={()=>{ setWinMs(w.ms); setTip(null); }}>{w.label}</button>
         ))}
-        {latest&&!tooltip&&(
-          <text x={Math.min(latest.x,W-PAD.right-10)} y={latest.y-9}
-            fontSize="11" fontWeight="900" fill={dc(latest.v)} textAnchor="middle">{latest.v}</text>
-        )}
-        {tooltip&&(
+        <div style={{ flex:1 }}/>
+        <button type="button" style={chip(false)} onClick={()=>pan(-1)} aria-label="Earlier">←</button>
+        <button type="button" style={chip(false)} onClick={()=>pan(1)} aria-label="Later">→</button>
+        <button type="button" style={chip(showCal)} onClick={()=>setShowCal(v=>!v)} aria-label="Pick a day">📅</button>
+        <button type="button" style={chip(isLive)} onClick={()=>{ setEndTs(null); setTip(null); }}>Now</button>
+      </div>
+
+      {showCal && (
+        <div style={{ marginBottom:8 }}>
+          <input type="date" value={dayStr}
+            min={new Date(dataMin).toISOString().slice(0,10)}
+            max={new Date(Math.max(dataMax,Date.now())).toISOString().slice(0,10)}
+            onChange={e=>{
+              const [y,m,d] = e.target.value.split("-").map(Number);
+              if (!y) return;
+              const end = new Date(y, m-1, d, 23, 59, 59).getTime();
+              setEndTs(Math.min(end, Math.max(dataMax, Date.now())));
+              setShowCal(false); setTip(null);
+            }}
+            style={{ width:"100%", padding:"8px 10px", borderRadius:12, fontSize:12,
+              fontFamily:"inherit", border:"none", background:C.tile, color:C.textDk, outline:"none" }}/>
+        </div>
+      )}
+
+      {/* Window label */}
+      <div style={{ fontSize:11, color:C.textLt, fontWeight:600, marginBottom:4 }}>
+        {isLive ? "Live" : new Date(left).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+        {" · "}
+        {new Date(left).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
+        {" – "}
+        {new Date(right).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
+        {pts.length===0 && " · no readings in this window"}
+      </div>
+
+      <svg ref={dragRef} viewBox={`0 0 ${W} ${H}`}
+        style={{ width:"100%", height:"auto", display:"block", overflow:"visible",
+          touchAction:"pan-y", cursor:"grab" }}
+        onMouseMove={onMove} onMouseLeave={()=>{ setTip(null); onUp(); }}
+        onMouseDown={onDown} onMouseUp={onUp}
+        onTouchStart={onDown} onTouchMove={onMove} onTouchEnd={onUp}>
+
+        <rect x={PAD.left} y={yH} width={cW} height={yL-yH} fill={C.band} rx="2"/>
+        <line x1={PAD.left} y1={yL} x2={PAD.left+cW} y2={yL} stroke={C.high} strokeWidth="1"/>
+        <text x={W-PAD.right+4} y={yH+4} fontSize="9" fill={C.textLt} fontWeight="600">{TARGET_HIGH}</text>
+        <text x={W-PAD.right+4} y={yL+4} fontSize="9" fill={C.textLt} fontWeight="600">{TARGET_LOW}</text>
+
+        {ticks.map((t,i)=>(
+          <line key={"g"+i} x1={t.x} y1={PAD.top} x2={t.x} y2={PAD.top+cH}
+            stroke={C.border} strokeWidth="1" strokeDasharray="2 4"/>
+        ))}
+
+        {shown.map((p,i)=>(
+          <circle key={i} cx={p.x.toFixed(1)} cy={p.y.toFixed(1)}
+            r={tip?.ts===p.ts?5:2.4} fill={dc(p.v)}
+            stroke={tip?.ts===p.ts?"#fff":"none"} strokeWidth={tip?.ts===p.ts?2:0}/>
+        ))}
+
+        {tip && (
           <g>
-            <rect x={tx-28} y={ty-16} width="56" height="22" rx="8" fill={dc(tooltip.v)} opacity="0.95"/>
-            <text x={tx} y={ty-1} fontSize="12" fontWeight="900" fill="#fff" textAnchor="middle" fontFamily="Nunito Sans,sans-serif">{tooltip.v}</text>
-            <text x={tx} y={ty+18} fontSize="8" fontWeight="700" fill="rgba(255,255,255,0.75)" textAnchor="middle" fontFamily="Nunito Sans,sans-serif">{tooltip.time}</text>
-            <line x1={tx} y1={ty+6} x2={tooltip.x.toFixed(1)} y2={tooltip.y-7} stroke={dc(tooltip.v)} strokeWidth="1.5" opacity="0.6"/>
+            <line x1={tip.x} y1={PAD.top} x2={tip.x} y2={PAD.top+cH} stroke={C.textLt} strokeWidth="1" opacity="0.4"/>
+            <rect x={tx-44} y={ty-26} width="88" height="34" rx="8" fill={C.textDk} opacity="0.94"/>
+            <text x={tx} y={ty-13} fontSize="12" fontWeight="800" fill="#fff" textAnchor="middle"
+              fontFamily="Nunito Sans,sans-serif">{tip.v} mg/dL</text>
+            <text x={tx} y={ty+1} fontSize="9" fontWeight="600" fill="rgba(255,255,255,0.7)" textAnchor="middle"
+              fontFamily="Nunito Sans,sans-serif">
+              {new Date(tip.ts).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" })}
+            </text>
           </g>
         )}
-        {tLbls.map((t,i)=>(
-          <text key={i} x={t.x.toFixed(1)} y={H-3} fontSize="9" fill={C.textLt}
-            textAnchor={i===0?"start":i===tLbls.length-1?"end":"middle"} fontWeight="600" fontFamily="Nunito Sans,sans-serif">
-            {t.label}
-          </text>
+
+        {ticks.map((t,i)=>(
+          <text key={"t"+i} x={t.x} y={H-4} fontSize="9" fill={C.textLt} fontWeight="600"
+            textAnchor={i===0?"start":i===ticks.length-1?"end":"middle"}
+            fontFamily="Nunito Sans,sans-serif">{t.label}</text>
         ))}
       </svg>
+      <div style={{ fontSize:9, color:C.textLt, marginTop:2 }}>
+        CGM data by Dexcom · drag to scroll
+      </div>
     </div>
   );
 }
@@ -1478,12 +1597,15 @@ export default function App() {
   const [dexLoading,   setDexLoading  ] = useState(true);
   const [dexError,     setDexError    ] = useState(null);
   const [history,      setHistory     ] = useState([]);
+  const [storeAll,     setStoreAll    ] = useState([]);
   const pollRef      = useRef();
   const lastAlertRef = useRef(null);
 
   useEffect(() => {
     sharedLog.get().then(setLog);
     sharedSites.get().then(d => setSites(Array.isArray(d) ? d : []));
+    fetch("/api/bg-store").then(r=>r.json())
+      .then(d => { if (Array.isArray(d)) setStoreAll(d); }).catch(()=>{});
     setRatios(localStore.get("hud-ratios",{breakfast:10,lunch:12,dinner:12,snack:15}));
   }, []);
 
@@ -1643,7 +1765,7 @@ export default function App() {
               <div style={{ fontSize:12,fontWeight:600,color:C.textDk,marginBottom:6 }}>
                 Today
               </div>
-              <BGTrendChart history={history}/>
+              <BGChart live={history} store={storeAll}/>
             </div>
           )}
 
