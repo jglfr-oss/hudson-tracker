@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#FFFFFF"/>
+  <g transform="translate(0.0,0.0) scale(1.0)">
+    <path d="M256 44 C256 44 118 214 118 306 a138 138 0 1 0 276 0 C394 214 256 44 256 44 Z" fill="#241773"/>
+    <text x="256" y="356" text-anchor="middle"
+          font-family="Nunito Sans, Helvetica, Arial, sans-serif"
+          font-size="190" font-weight="800" fill="#F5C518">H</text>
+  </g>
+</svg>
