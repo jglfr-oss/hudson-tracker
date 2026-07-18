@@ -26,9 +26,9 @@ const FONT = "'Nunito Sans',-apple-system,BlinkMacSystemFont,sans-serif";
 
 const MEALS = [
   { id:"breakfast", label:"Breakfast", icon:"☀️",  defaultRatio:10 },
-  { id:"lunch",     label:"Lunch",     icon:"🌤️", defaultRatio:13 },
+  { id:"lunch",     label:"Lunch",     icon:"🌤️", defaultRatio:16 },
   { id:"dinner",    label:"Dinner",    icon:"🌙",  defaultRatio:13 },
-  { id:"snack",     label:"Snack",     icon:"🍎",  defaultRatio:15 },
+  { id:"snack",     label:"Snack",     icon:"🍎",  defaultRatio:13 },
 ];
 
 
@@ -145,7 +145,7 @@ function timeLabel() {
 }
 
 function calcDose({ carbs, bg, mealId, ratios }) {
-  const ratio      = ratios[mealId] ?? 12;
+  const ratio      = ratios[mealId] ?? 13;
   const carbDose   = carbs / ratio;
   const correction = bg ? Math.max(0, (bg - TARGET_BG) / CORRECTION_FACTOR) : 0;
   return { carbDose:roundHalf(carbDose), correction:roundHalf(correction), total:Math.max(0,roundHalf(carbDose+correction)) };
@@ -363,7 +363,7 @@ const CHART_WINDOWS = [
   { label:"24h", ms: 24*3600000 },
 ];
 
-function BGChart({ live, store }) {
+function BGChart({ live, store, boluses }) {
   const [winMs,   setWinMs  ] = useState(3*3600000);
   const [endTs,   setEndTs  ] = useState(null);   // null = live (pinned to now)
   const [tip,     setTip    ] = useState(null);
@@ -618,6 +618,18 @@ function BGChart({ live, store }) {
             stroke={C.border} strokeWidth="1" strokeDasharray="2 4"/>
         ))}
 
+        {(boluses||[])
+          .filter(b => b && b.ts >= left && b.ts <= right)
+          .map((b,i)=>{
+            const bx = xS(b.ts);
+            const h  = Math.min(14, 4 + (b.u||0)*1.6);
+            return (
+              <g key={"bol"+i}>
+                <line x1={bx} y1={PAD.top+cH} x2={bx} y2={PAD.top+cH-h}
+                  stroke={C.ravens} strokeWidth="2" opacity="0.65" strokeLinecap="round"/>
+              </g>
+            );
+          })}
         {shown.map((p,i)=>(
           <circle key={i} cx={p.x.toFixed(1)} cy={p.y.toFixed(1)}
             r={tip?.ts===p.ts?5:2.4} fill={dc(p.v)}
@@ -630,6 +642,13 @@ function BGChart({ live, store }) {
             <rect x={tx-44} y={ty-26} width="88" height="34" rx="8" fill={C.textDk} opacity="0.94"/>
             <text x={tx} y={ty-13} fontSize="12" fontWeight="800" fill="#fff" textAnchor="middle"
               fontFamily="Nunito Sans,sans-serif">{tip.v} mg/dL</text>
+            {(() => {
+              const near = (boluses||[]).find(b => Math.abs(b.ts - tip.ts) < 15*60000);
+              return near ? (
+                <text x={tx} y={ty+14} fontSize="9" fontWeight="700" fill={C.ravens} textAnchor="middle"
+                  fontFamily="Nunito Sans,sans-serif">{near.u}u{near.c?` · ${near.c}g`:""}</text>
+              ) : null;
+            })()}
             <text x={tx} y={ty+1} fontSize="9" fontWeight="600" fill="rgba(255,255,255,0.7)" textAnchor="middle"
               fontFamily="Nunito Sans,sans-serif">
               {new Date(tip.ts).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" })}
@@ -644,7 +663,7 @@ function BGChart({ live, store }) {
         ))}
       </svg>
       <div style={{ fontSize:9, color:C.textLt, marginTop:2 }}>
-        CGM data by Dexcom · drag to scroll · {(store||[]).length.toLocaleString()} stored
+        CGM data by Dexcom · drag to scroll · {(store||[]).length.toLocaleString()} stored{(boluses||[]).length>0 ? " · purple ticks = boluses" : ""}
         {(store||[]).length>0 && ` back to ${new Date(data[0].ts).toLocaleDateString("en-US",{month:"short",day:"numeric"})}`}
       </div>
     </div>
@@ -913,6 +932,111 @@ function AskTab() {
   );
 }
 
+
+// ═══ Insulin Trends — from Glooko bolus data ═════════════════════════════════
+function InsulinTrends({ insulin, readings, fromTs, toTs, mealWindows, ratios }) {
+  const bol = (insulin?.boluses || []).filter(b => b && b.ts >= fromTs && b.ts <= toTs);
+  const tot = (insulin?.dailyTotals || []).filter(t => {
+    const d = new Date(t.d + "T12:00:00").getTime();
+    return d >= fromTs && d <= toTs;
+  });
+
+  if (bol.length === 0) return (
+    <Card style={{ marginBottom:12 }}>
+      <div style={{ fontWeight:800, color:C.textDk, fontSize:15, marginBottom:4 }}>💉 Insulin</div>
+      <div style={{ color:C.textLt, fontSize:12, lineHeight:1.5 }}>
+        No bolus data in this range. Import a Glooko export to fill this in.
+      </div>
+    </Card>
+  );
+
+  const days = new Set(bol.map(b => new Date(b.ts).toDateString())).size || 1;
+  const totalU = bol.reduce((a,b)=>a+(b.u||0),0);
+  const totalC = bol.reduce((a,b)=>a+(b.c||0),0);
+  const avgDailyTotal = tot.length ? tot.reduce((a,t)=>a+(t.total||0),0)/tot.length : null;
+  const avgBasal = tot.length ? tot.reduce((a,t)=>a+(t.basal||0),0)/tot.length : null;
+  const basalPct = (avgDailyTotal && avgBasal) ? Math.round(avgBasal/avgDailyTotal*100) : null;
+
+  // Boluses by meal window, with the ratio the pump actually used
+  const byWin = {};
+  bol.forEach(b => {
+    const w = mealWindowFor(new Date(b.ts).getHours(), mealWindows);
+    if (!byWin[w]) byWin[w] = { n:0, u:0, c:0, ratios:[] };
+    byWin[w].n++; byWin[w].u += b.u||0; byWin[w].c += b.c||0;
+    if (b.r) byWin[w].ratios.push(b.r);
+  });
+  const median = a => { if(!a.length) return null; const s=[...a].sort((x,y)=>x-y); return s[Math.floor(s.length/2)]; };
+  const WINS = [
+    { key:"breakfast", label:"Breakfast", icon:"☀️" },
+    { key:"lunch",     label:"Lunch",     icon:"🌤️" },
+    { key:"snack",     label:"Snack",     icon:"🍎" },
+    { key:"dinner",    label:"Dinner",    icon:"🌙" },
+    { key:"overnight", label:"Overnight", icon:"🌑" },
+  ];
+
+  return (
+    <Card style={{ marginBottom:12 }}>
+      <div style={{ fontWeight:800, color:C.textDk, fontSize:15, marginBottom:4 }}>💉 Insulin</div>
+      <div style={{ color:C.textLt, fontSize:11, marginBottom:14 }}>
+        {bol.length} boluses over {days} days · from Glooko
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:16 }}>
+        <div style={{ background:C.white, borderRadius:12, padding:"10px 12px" }}>
+          <div style={{ fontSize:10, color:C.textMd, fontWeight:600 }}>Avg daily total</div>
+          <div style={{ fontSize:22, fontWeight:800, color:C.textDk, marginTop:2 }}>
+            {avgDailyTotal ? avgDailyTotal.toFixed(1) : (totalU/days).toFixed(1)}<span style={{ fontSize:11, color:C.textMd, fontWeight:600 }}>u</span>
+          </div>
+        </div>
+        <div style={{ background:C.white, borderRadius:12, padding:"10px 12px" }}>
+          <div style={{ fontSize:10, color:C.textMd, fontWeight:600 }}>Basal share</div>
+          <div style={{ fontSize:22, fontWeight:800, color:C.textDk, marginTop:2 }}>
+            {basalPct !== null ? `${basalPct}%` : "—"}
+          </div>
+        </div>
+        <div style={{ background:C.white, borderRadius:12, padding:"10px 12px" }}>
+          <div style={{ fontSize:10, color:C.textMd, fontWeight:600 }}>Avg carbs/day</div>
+          <div style={{ fontSize:22, fontWeight:800, color:C.textDk, marginTop:2 }}>
+            {Math.round(totalC/days)}<span style={{ fontSize:11, color:C.textMd, fontWeight:600 }}>g</span>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ fontSize:12, fontWeight:800, color:C.textDk, marginBottom:8 }}>By meal window</div>
+      {WINS.filter(w=>byWin[w.key]).map(w=>{
+        const d = byWin[w.key];
+        const pumpRatio = median(d.ratios);
+        const appRatio = ratios?.[w.key];
+        const mismatch = pumpRatio && appRatio && pumpRatio !== appRatio;
+        return (
+          <div key={w.key} style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+            padding:"8px 0", borderBottom:`1px solid ${C.border}` }}>
+            <div>
+              <div style={{ fontSize:13, fontWeight:700, color:C.textDk }}>{w.icon} {w.label}</div>
+              <div style={{ fontSize:10, color:C.textLt, fontWeight:600 }}>
+                {d.n} boluses · {(d.u/d.n).toFixed(1)}u avg · {Math.round(d.c/d.n)}g avg
+              </div>
+            </div>
+            <div style={{ textAlign:"right" }}>
+              <div style={{ fontSize:13, fontWeight:800, color: mismatch ? C.low : C.textDk }}>
+                {pumpRatio ? `1:${pumpRatio}` : "—"}
+              </div>
+              <div style={{ fontSize:9, color:C.textLt, fontWeight:600 }}>
+                {mismatch ? `app says 1:${appRatio}` : "pump ratio"}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      <div style={{ fontSize:10, color:C.textLt, marginTop:12, lineHeight:1.5 }}>
+        Ratios shown are what the pump actually used. Any mismatch with the app's
+        settings is worth reconciling — confirm with Hudson's endocrinologist.
+      </div>
+    </Card>
+  );
+}
+
 // ═══ Site Trends — usage, wear, and BG-by-pod-age ════════════════════════════
 function HBar({ label, count, max, color, note }) {
   const pct = max > 0 ? Math.max(4, (count/max)*100) : 0;
@@ -1098,7 +1222,7 @@ function fromDateInputVal(s) {
   return new Date(y, m-1, d).getTime();
 }
 
-function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sites }) {
+function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sites, insulin }) {
   const [view,       setView    ] = useState("insights"); // insights | trends
   const [loading,    setLoading ] = useState(true);
   const [readings,   setReadings] = useState([]);
@@ -1391,6 +1515,8 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
       <HighLowTrend readings={all} rangeLow={rangeLow} rangeHigh={rangeHigh} mealWindows={mealWindows}/>
 
       {/* Site trends — driven by the same date filters */}
+      <InsulinTrends insulin={insulin} readings={all} fromTs={fromTs} toTs={toTs} mealWindows={mealWindows} ratios={ratios}/>
+
       <SiteTrends sites={sites} readings={all} fromTs={fromTs} toTs={toTs}/>
 
       </>)}
@@ -2061,7 +2187,7 @@ export default function App() {
   const [carbs,        setCarbs       ] = useState(30);
   const [bg,           setBg          ] = useState(120);
   const [bgEntered,    setBgEntered   ] = useState(false);
-  const [ratios,       setRatios      ] = useState({breakfast:10,lunch:12,dinner:12,snack:15});
+  const [ratios,       setRatios      ] = useState({breakfast:10,lunch:16,dinner:13,snack:13});
   const [log,          setLog         ] = useState([]);
   const [sites,        setSites       ] = useState([]);
   const [showSettings, setShowSettings] = useState(false);
@@ -2074,6 +2200,7 @@ export default function App() {
   const [dexError,     setDexError    ] = useState(null);
   const [history,      setHistory     ] = useState([]);
   const [storeAll,     setStoreAll    ] = useState([]);
+  const [insulin,      setInsulin     ] = useState({ boluses:[], dailyTotals:[] });
   const pollRef      = useRef();
   const lastAlertRef = useRef(null);
 
@@ -2088,7 +2215,9 @@ export default function App() {
     } catch {}
     fetch("/api/bg-store").then(r=>r.json())
       .then(d => { if (Array.isArray(d)) setStoreAll(d); }).catch(()=>{});
-    setRatios(localStore.get("hud-ratios",{breakfast:10,lunch:12,dinner:12,snack:15}));
+    fetch("/api/insulin-store").then(r=>r.json())
+      .then(d => { if (d && Array.isArray(d.boluses)) setInsulin(d); }).catch(()=>{});
+    setRatios(localStore.get("hud-ratios",{breakfast:10,lunch:16,dinner:13,snack:13}));
   }, []);
 
   // Dexcom polling + save to bg-store
@@ -2257,7 +2386,7 @@ export default function App() {
               <div style={{ fontSize:12,fontWeight:600,color:C.textDk,marginBottom:6 }}>
                 Today
               </div>
-              <BGChart live={history} store={storeAll}/>
+              <BGChart live={history} store={storeAll} boluses={insulin.boluses}/>
             </div>
           )}
 
@@ -2408,7 +2537,7 @@ export default function App() {
           </Sheet>)}
 
           {/* ══ HOME = TRENDS ══ */}
-          <AnalyticsTab bgHistory={history} ratios={ratios} rangeLow={rangeLow} rangeHigh={rangeHigh} mealWindows={mealWindows} sites={sites}/>
+          <AnalyticsTab bgHistory={history} ratios={ratios} rangeLow={rangeLow} rangeHigh={rangeHigh} mealWindows={mealWindows} sites={sites} insulin={insulin}/>
         </div>
 
 
@@ -2459,3 +2588,4 @@ export default function App() {
     </>
   );
 }
+
