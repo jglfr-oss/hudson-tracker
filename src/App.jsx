@@ -2,22 +2,25 @@ import { useState, useEffect, useRef } from "react";
 
 // ═══ Ravens Palette ══════════════════════════════════════════════════════════
 const C = {
-  navy:    "#1A0033",
-  navyDk:  "#0D0020",
-  blue:    "#9B3FC8",
-  teal:    "#FFB612",
+  navy:    "#FFFFFF",
+  navyDk:  "#FFFFFF",
+  blue:    "#0A84FF",
+  teal:    "#8E8E93",
   white:   "#FFFFFF",
-  offWhite:"#F5F0FA",
-  border:  "#E2D5F0",
-  textDk:  "#1A0033",
-  textMd:  "#5A3A7A",
-  textLt:  "#9B7FBB",
-  low:     "#F5A623",
-  high:    "#E84040",
-  inRange: "#27AE60",
+  offWhite:"#F7F7F8",
+  border:  "#E5E5EA",
+  textDk:  "#000000",
+  textMd:  "#6E6E73",
+  textLt:  "#A1A1A6",
+  low:     "#FF9500",
+  high:    "#FF3B30",
+  inRange: "#34C759",
+  band:    "#F0F0F2",
 };
 
 // ═══ Config ═══════════════════════════════════════════════════════════════════
+const FONT = '-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif';
+
 const MEALS = [
   { id:"breakfast", label:"Breakfast", icon:"☀️",  defaultRatio:10 },
   { id:"lunch",     label:"Lunch",     icon:"🌤️", defaultRatio:13 },
@@ -196,8 +199,8 @@ function computeStats(readings, mealWindows) {
 
 // ═══ Atoms ═══════════════════════════════════════════════════════════════════
 function Card({ children, style={} }) {
-  return <div style={{ background:C.white, borderRadius:18, border:`1px solid ${C.border}`,
-    boxShadow:"0 2px 16px rgba(0,0,0,0.06)", padding:20, ...style }}>{children}</div>;
+  return <div style={{ background:C.white, borderRadius:12, border:`1px solid ${C.border}`,
+    padding:18, ...style }}>{children}</div>;
 }
 
 function Badge({ color, children }) {
@@ -207,18 +210,18 @@ function Badge({ color, children }) {
 
 function Btn({ onClick, children, variant="primary", style={}, disabled=false }) {
   const v = {
-    primary:   { background:`linear-gradient(135deg,${C.blue},#C060F0)`, color:"#fff", boxShadow:`0 4px 18px ${C.blue}44`, border:"none" },
-    secondary: { background:C.offWhite, color:C.blue, border:`1.5px solid ${C.border}` },
-    danger:    { background:"#FFF0F0",  color:C.high, border:"1.5px solid #F5CCCC" },
+    primary:   { background:C.textDk, color:"#fff", border:"none" },
+    secondary: { background:C.white, color:C.textDk, border:`1px solid ${C.border}` },
+    danger:    { background:C.white,  color:C.high, border:`1px solid ${C.high}55` },
   }[variant];
-  return <button type="button" onClick={onClick} disabled={disabled} style={{ borderRadius:30, fontWeight:700,
+  return <button type="button" onClick={onClick} disabled={disabled} style={{ borderRadius:10, fontWeight:600,
     cursor:disabled?"not-allowed":"pointer", fontSize:15, padding:"12px 28px",
     fontFamily:"inherit", opacity:disabled?0.5:1, ...v, ...style }}>{children}</button>;
 }
 
 function NumPad({ value, onChange, step=1, min=0, max=500, unit="" }) {
-  const bs = { width:44, height:44, borderRadius:"50%", border:`2px solid ${C.border}`,
-    background:C.offWhite, fontSize:22, cursor:"pointer", color:C.blue,
+  const bs = { width:40, height:40, borderRadius:"50%", border:`1px solid ${C.border}`,
+    background:C.white, fontSize:20, cursor:"pointer", color:C.textDk,
     display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700 };
   return (
     <div style={{ display:"flex", alignItems:"center", gap:12, justifyContent:"center" }}>
@@ -242,7 +245,7 @@ function BGTrendChart({ history }) {
   const minTs=sorted[0].ts, tsR=(sorted[sorted.length-1].ts-minTs)||1;
   const xS = ts  => PAD.left+((ts-minTs)/tsR)*cW;
   const yS = val => PAD.top+cH-((Math.min(Math.max(val,40),320)-40)/280)*cH;
-  const dc  = v  => v<TARGET_LOW?"#F5A623":v>TARGET_HIGH?"#E84040":"#4ADE80";
+  const dc  = v  => v<TARGET_LOW?C.high:v>TARGET_HIGH?C.low:C.textDk;
   const yH=yS(TARGET_HIGH), yL=yS(TARGET_LOW);
   const pts=sorted.map(r=>({ x:xS(r.ts), y:yS(r.value), v:r.value,
     time:new Date(r.ts).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}) }));
@@ -266,25 +269,25 @@ function BGTrendChart({ history }) {
   const ty=tooltip?Math.max(tooltip.y-28,PAD.top):0;
 
   return (
-    <div style={{ background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.10)",
-      borderRadius:16, padding:"10px 12px 6px" }} onClick={()=>setTooltip(null)}>
+    <div style={{ background:C.white, border:`1px solid ${C.border}`,
+      borderRadius:12, padding:"10px 12px 6px" }} onClick={()=>setTooltip(null)}>
       <svg viewBox={`0 0 ${W} ${H}`}
         style={{ width:"100%", height:"auto", display:"block", overflow:"visible", touchAction:"none" }}
         onTouchStart={handleTouch} onTouchMove={handleTouch} onClick={handleTouch}>
-        <rect x={PAD.left} y={yH} width={cW} height={yL-yH} fill="rgba(74,222,128,0.10)" rx="2"/>
-        <line x1={PAD.left} y1={yH} x2={PAD.left+cW} y2={yH} stroke="rgba(74,222,128,0.35)" strokeWidth="1" strokeDasharray="4 3"/>
-        <line x1={PAD.left} y1={yL} x2={PAD.left+cW} y2={yL} stroke="rgba(245,166,35,0.45)" strokeWidth="1" strokeDasharray="4 3"/>
-        <text x={W-PAD.right+4} y={yH+4} fontSize="9" fill="rgba(74,222,128,0.8)" fontWeight="700">{TARGET_HIGH}</text>
-        <text x={W-PAD.right+4} y={yL+4} fontSize="9" fill="rgba(245,166,35,0.9)" fontWeight="700">{TARGET_LOW}</text>
-        {pts.length>1&&<path d={path} fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>}
+        <rect x={PAD.left} y={yH} width={cW} height={yL-yH} fill={C.band} rx="2"/>
+        <line x1={PAD.left} y1={yH} x2={PAD.left+cW} y2={yH} stroke={C.border} strokeWidth="1"/>
+        <line x1={PAD.left} y1={yL} x2={PAD.left+cW} y2={yL} stroke={C.high} strokeWidth="1"/>
+        <text x={W-PAD.right+4} y={yH+4} fontSize="9" fill={C.textLt} fontWeight="500">{TARGET_HIGH}</text>
+        <text x={W-PAD.right+4} y={yL+4} fontSize="9" fill={C.textLt} fontWeight="500">{TARGET_LOW}</text>
+        {pts.length>1&&<path d={path} fill="none" stroke="none" strokeWidth="0" strokeLinecap="round" strokeLinejoin="round"/>}
         {pts.map((p,i)=>(
           <g key={i}>
             <circle cx={p.x.toFixed(1)} cy={p.y.toFixed(1)} r="12" fill="transparent"/>
             <circle cx={p.x.toFixed(1)} cy={p.y.toFixed(1)}
-              r={tooltip?.x===p.x?6:i===pts.length-1?5:3}
+              r={tooltip?.x===p.x?5:2.4}
               fill={dc(p.v)}
-              stroke={tooltip?.x===p.x?"#fff":i===pts.length-1?"rgba(255,255,255,0.9)":"none"}
-              strokeWidth={tooltip?.x===p.x?2.5:i===pts.length-1?2:0} opacity="0.9"/>
+              stroke={tooltip?.x===p.x?C.textDk:"none"}
+              strokeWidth={tooltip?.x===p.x?2:0} opacity="1"/>
           </g>
         ))}
         {latest&&!tooltip&&(
@@ -294,14 +297,14 @@ function BGTrendChart({ history }) {
         {tooltip&&(
           <g>
             <rect x={tx-28} y={ty-16} width="56" height="22" rx="8" fill={dc(tooltip.v)} opacity="0.95"/>
-            <text x={tx} y={ty-1} fontSize="12" fontWeight="900" fill="#fff" textAnchor="middle" fontFamily="Nunito,sans-serif">{tooltip.v}</text>
-            <text x={tx} y={ty+18} fontSize="8" fontWeight="700" fill="rgba(255,255,255,0.55)" textAnchor="middle" fontFamily="Nunito,sans-serif">{tooltip.time}</text>
+            <text x={tx} y={ty-1} fontSize="12" fontWeight="900" fill="#fff" textAnchor="middle" fontFamily="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif">{tooltip.v}</text>
+            <text x={tx} y={ty+18} fontSize="8" fontWeight="700" fill="rgba(255,255,255,0.75)" textAnchor="middle" fontFamily="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif">{tooltip.time}</text>
             <line x1={tx} y1={ty+6} x2={tooltip.x.toFixed(1)} y2={tooltip.y-7} stroke={dc(tooltip.v)} strokeWidth="1.5" opacity="0.6"/>
           </g>
         )}
         {tLbls.map((t,i)=>(
-          <text key={i} x={t.x.toFixed(1)} y={H-3} fontSize="9" fill="rgba(255,255,255,0.4)"
-            textAnchor={i===0?"start":i===tLbls.length-1?"end":"middle"} fontWeight="600" fontFamily="Nunito,sans-serif">
+          <text key={i} x={t.x.toFixed(1)} y={H-3} fontSize="9" fill={C.textLt}
+            textAnchor={i===0?"start":i===tLbls.length-1?"end":"middle"} fontWeight="600" fontFamily="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif">
             {t.label}
           </text>
         ))}
@@ -397,9 +400,9 @@ function HighLowTrend({ readings, rangeLow, rangeHigh, mealWindows }) {
         {HL_FILTERS.map(f=>(
           <button key={f.key} type="button" onClick={()=>{ setFilter(f.key); setTooltip(null); }}
             style={{ padding:"7px 0", borderRadius:20, fontFamily:"inherit", textAlign:"center", fontWeight:800, fontSize:12,
-              border: filter===f.key ? `2px solid ${C.blue}` : `1.5px solid ${C.border}`,
-              background: filter===f.key ? `${C.blue}18` : C.offWhite,
-              color: filter===f.key ? C.blue : C.textMd, cursor:"pointer" }}>
+              border: filter===f.key ? `1px solid ${C.textDk}` : `1px solid ${C.border}`,
+              background: filter===f.key ? C.textDk : C.white,
+              color: filter===f.key ? "#fff" : C.textMd, cursor:"pointer" }}>
             {f.label}
           </button>
         ))}
@@ -435,10 +438,10 @@ function HighLowTrend({ readings, rangeLow, rangeHigh, mealWindows }) {
             </g>
           );
         })}
-        <text x={PAD.left+2} y={PAD.top-5} fontSize="9" fill={C.high} fontWeight="800" fontFamily="Nunito,sans-serif">▲ highs</text>
-        <text x={PAD.left+2} y={H-PAD.bottom+13} fontSize="9" fill={C.low} fontWeight="800" fontFamily="Nunito,sans-serif">▼ lows</text>
+        <text x={PAD.left+2} y={PAD.top-5} fontSize="9" fill={C.high} fontWeight="800" fontFamily="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif">▲ highs</text>
+        <text x={PAD.left+2} y={H-PAD.bottom+13} fontSize="9" fill={C.low} fontWeight="800" fontFamily="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif">▼ lows</text>
         {labelIdx.map((i,k)=>(
-          <text key={k} x={xOf(i)} y={H-4} fontSize="9" fill={C.textLt} fontWeight="600" fontFamily="Nunito,sans-serif"
+          <text key={k} x={xOf(i)} y={H-4} fontSize="9" fill={C.textLt} fontWeight="600" fontFamily="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif"
             textAnchor={k===0?"start":k===labelIdx.length-1?"end":"middle"}>
             {fmtDay(days[i].ts)}
           </text>
@@ -591,9 +594,9 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
               setCustomTo(toDateInputVal(Date.now()));
             }}
               style={{ padding:"8px 0", borderRadius:20, fontFamily:"inherit", textAlign:"center", fontWeight:800, fontSize:12,
-                border: (!useCustom && period===p.days) ? `2px solid ${C.blue}` : `1.5px solid ${C.border}`,
-                background: (!useCustom && period===p.days) ? `${C.blue}18` : C.offWhite,
-                color: (!useCustom && period===p.days) ? C.blue : C.textMd, cursor:"pointer" }}>
+                border: (!useCustom && period===p.days) ? `1px solid ${C.textDk}` : `1px solid ${C.border}`,
+                background: (!useCustom && period===p.days) ? C.textDk : C.white,
+                color: (!useCustom && period===p.days) ? "#fff" : C.textMd, cursor:"pointer" }}>
               {p.label}
             </button>
           ))}
@@ -644,16 +647,16 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
             { label:"Low",      pct:stats.lowPct,  color:C.low     },
           ].map(s=>(
             <div key={s.label} style={{ textAlign:"center" }}>
-              <div style={{ fontSize:22, fontWeight:900, color:s.color }}>{s.pct}%</div>
+              <div style={{ fontSize:22, fontWeight:700, color:s.color }}>{s.pct}%</div>
               <div style={{ fontSize:11, color:C.textMd, fontWeight:600 }}>{s.label}</div>
             </div>
           ))}
           <div style={{ textAlign:"center" }}>
-            <div style={{ fontSize:22, fontWeight:900, color:C.textDk }}>{stats.avg}</div>
+            <div style={{ fontSize:22, fontWeight:700, color:C.textDk }}>{stats.avg}</div>
             <div style={{ fontSize:11, color:C.textLt, fontWeight:600 }}>Avg BG</div>
           </div>
           <div style={{ textAlign:"center" }}>
-            <div style={{ fontSize:22, fontWeight:900, color:C.blue }}>{stats.a1c}%</div>
+            <div style={{ fontSize:22, fontWeight:700, color:C.textDk }}>{stats.a1c}%</div>
             <div style={{ fontSize:11, color:C.textLt, fontWeight:600 }}>Est. A1c</div>
           </div>
         </div>
@@ -748,16 +751,13 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
 function QuoteBanner() {
   const q = getDailyQuote();
   return (
-    <div style={{ background:`linear-gradient(135deg,#1A0033 0%,#3B0075 60%,#9B3FC8 100%)`,
-      borderRadius:18, padding:"18px 20px", marginBottom:14,
-      boxShadow:"0 4px 20px rgba(155,63,200,0.25)", position:"relative", overflow:"hidden" }}>
-      <div style={{ position:"absolute", right:10, top:-10, fontSize:80, color:"rgba(255,255,255,0.07)",
-        fontWeight:900, lineHeight:1, fontFamily:"Georgia,serif", userSelect:"none" }}>"</div>
-      <div style={{ fontSize:10, fontWeight:800, color:C.teal, letterSpacing:2, textTransform:"uppercase", marginBottom:8 }}>
-        🏈 Mark Andrews Mode
+    <div style={{ background:C.white, border:`1px solid ${C.border}`,
+      borderRadius:12, padding:"16px 18px", marginBottom:14, position:"relative", overflow:"hidden" }}>
+      <div style={{ fontSize:11, fontWeight:600, color:C.textLt, marginBottom:6 }}>
+        Daily note
       </div>
-      <div style={{ fontSize:15, fontWeight:700, color:"#fff", lineHeight:1.5, marginBottom:8 }}>"{q.text}"</div>
-      <div style={{ fontSize:11, color:"rgba(255,255,255,0.45)", fontStyle:"italic" }}>— {q.attr}</div>
+      <div style={{ fontSize:15, fontWeight:500, color:C.textDk, lineHeight:1.45, marginBottom:6 }}>{q.text}</div>
+      <div style={{ fontSize:12, color:C.textLt }}>— {q.attr}</div>
     </div>
   );
 }
@@ -786,10 +786,10 @@ function SeedButton() {
 
   return (
     <button type="button" onClick={run} disabled={status==="loading"}
-      style={{ width:"100%", padding:"11px 0", borderRadius:12, fontFamily:"inherit",
-        background: status==="error" ? "#FFF0F0" : `linear-gradient(135deg,${C.blue},#C060F0)`,
+      style={{ width:"100%", padding:"11px 0", borderRadius:10, fontFamily:"inherit",
+        background: status==="error" ? C.white : C.textDk,
         color: status==="error" ? C.high : "#fff",
-        border: status==="error" ? `1.5px solid #F5CCCC` : "none",
+        border: status==="error" ? `1px solid ${C.high}55` : "none",
         fontWeight:800, fontSize:13, cursor:status==="loading"?"not-allowed":"pointer",
         opacity:status==="loading"?0.7:1 }}>
       {status==="loading" ? "⏳ Importing… this takes ~30 seconds"
@@ -943,9 +943,8 @@ function PushToggle() {
 }
 
 // ═══ Settings Modal ═══════════════════════════════════════════════════════════
-function SettingsModal({ ratios, setRatios, alertNumbers, setAlertNumbers, rangeLow, setRangeLow, rangeHigh, setRangeHigh, mealWindows, setMealWindows, onClose }) {
+function SettingsModal({ ratios, setRatios, rangeLow, setRangeLow, rangeHigh, setRangeHigh, mealWindows, setMealWindows, onClose }) {
   const [local, setLocal]               = useState({ ...ratios });
-  const [localNumbers, setLocalNumbers] = useState([...alertNumbers]);
   const [localMW, setLocalMW]           = useState({ ...(mealWindows||DEFAULT_MEAL_WINDOWS) });
   const fmtH = h => h===0?"12am":h<12?`${h}am`:h===12?"12pm":`${h-12}pm`;
 
@@ -957,9 +956,9 @@ function SettingsModal({ ratios, setRatios, alertNumbers, setAlertNumbers, range
 
   return (
     <div onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}
-      style={{ position:"fixed", inset:0, zIndex:9999, background:"rgba(13,0,32,0.80)",
+      style={{ position:"fixed", inset:0, zIndex:9999, background:"rgba(0,0,0,0.35)",
         display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-      <div style={{ background:C.white, borderRadius:"24px 24px 0 0", padding:"24px 24px 48px",
+      <div style={{ background:C.white, borderRadius:"16px 16px 0 0", padding:"22px 22px 44px",
         width:"100%", maxWidth:480, boxShadow:"0 -8px 40px rgba(0,0,0,0.3)",
         animation:"slideUp .28s ease both", overflowY:"auto", maxHeight:"90vh" }}>
         <div style={{ width:36, height:4, borderRadius:2, background:C.border, margin:"0 auto 20px" }}/>
@@ -1026,30 +1025,6 @@ function SettingsModal({ ratios, setRatios, alertNumbers, setAlertNumbers, range
           })}
         </div>
 
-        {/* Alert Numbers */}
-        <div style={{ marginBottom:24 }}>
-          <div style={{ fontWeight:900, fontSize:16, color:C.textDk, marginBottom:4 }}>📱 Alert Numbers</div>
-          <div style={{ color:C.textMd, fontSize:12, marginBottom:12 }}>Text alerts sent when BG goes low or critical</div>
-          {localNumbers.map((n,i)=>(
-            <div key={i} style={{ display:"flex", gap:8, marginBottom:8, alignItems:"center" }}>
-              <input value={n}
-                onChange={e=>{ const u=[...localNumbers]; u[i]=e.target.value; setLocalNumbers(u); }}
-                placeholder="e.g. 267-481-2133"
-                style={{ flex:1, padding:"10px 14px", borderRadius:12, fontSize:14,
-                  border:`1.5px solid ${C.border}`, fontFamily:"inherit", color:C.textDk, outline:"none" }}/>
-              <button type="button"
-                onClick={()=>setLocalNumbers(localNumbers.filter((_,j)=>j!==i))}
-                style={{ background:"#FFF0F0", border:"1.5px solid #F5CCCC", borderRadius:10,
-                  color:C.high, fontWeight:700, fontSize:18, width:36, height:36,
-                  cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>×</button>
-            </div>
-          ))}
-          <button type="button" onClick={()=>setLocalNumbers([...localNumbers,""])}
-            style={{ background:C.offWhite, border:`1.5px dashed ${C.border}`, borderRadius:12,
-              padding:"8px 16px", color:C.blue, fontWeight:700, fontSize:13,
-              cursor:"pointer", fontFamily:"inherit", width:"100%" }}>+ Add Number</button>
-        </div>
-
         {/* Push notifications */}
         <div style={{ marginBottom:24 }}>
           <div style={{ fontWeight:900, fontSize:16, color:C.textDk, marginBottom:4 }}>🔔 Daily Reminders</div>
@@ -1070,7 +1045,7 @@ function SettingsModal({ ratios, setRatios, alertNumbers, setAlertNumbers, range
 
         <div style={{ display:"flex", gap:12 }}>
           <Btn variant="secondary" onClick={onClose} style={{ flex:1 }}>Cancel</Btn>
-          <Btn onClick={()=>{ setRatios(local); setAlertNumbers(localNumbers.filter(n=>n.trim().length>=10)); setMealWindows(localMW); onClose(); }} style={{ flex:1 }}>Save Changes</Btn>
+          <Btn onClick={()=>{ setRatios(local); setMealWindows(localMW); onClose(); }} style={{ flex:1 }}>Save Changes</Btn>
         </div>
       </div>
     </div>
@@ -1095,7 +1070,7 @@ function LogRow({ entry, onDelete }) {
       </div>
       {st&&<Badge color={st.color}>{entry.bg}</Badge>}
       <div style={{ textAlign:"right" }}>
-        <div style={{ fontSize:22, fontWeight:800, color:C.blue }}>{entry.dose}u</div>
+        <div style={{ fontSize:20, fontWeight:600, color:C.textDk }}>{entry.dose}u</div>
         <button type="button" onClick={()=>onDelete(entry.id)}
           style={{ background:"none", border:"none", cursor:"pointer", color:C.textLt, fontSize:11, padding:"2px 0", fontFamily:"inherit" }}>remove</button>
       </div>
@@ -1199,11 +1174,11 @@ function SitesTab({ sites, onAdd, onDelete }) {
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14 }}>
           {["pod","sensor"].map(d=>(
             <button key={d} type="button" onClick={()=>pickDevice(d)}
-              style={{ border:device===d?`2.5px solid ${C.blue}`:`2px solid ${C.border}`,
-                background:device===d?`${C.blue}11`:C.white, borderRadius:14, padding:"10px 4px",
+              style={{ border:device===d?`1px solid ${C.textDk}`:`1px solid ${C.border}`,
+                background:device===d?C.offWhite:C.white, borderRadius:10, padding:"10px 4px",
                 cursor:"pointer", textAlign:"center", fontFamily:"inherit" }}>
               <div style={{ fontSize:20 }}>{DEVICES[d].icon}</div>
-              <div style={{ fontSize:12, fontWeight:700, marginTop:2, color:device===d?C.blue:C.textMd }}>
+              <div style={{ fontSize:12, fontWeight:700, marginTop:2, color:device===d?C.textDk:C.textMd }}>
                 {DEVICES[d].label}
               </div>
             </button>
@@ -1233,9 +1208,9 @@ function SitesTab({ sites, onAdd, onDelete }) {
             return (
               <button key={s} type="button" onClick={()=>setSite(s)}
                 style={{ padding:"9px 6px", borderRadius:12, fontFamily:"inherit", textAlign:"left",
-                  border: site===s ? `2px solid ${C.blue}` : `1.5px solid ${C.border}`,
-                  background: site===s ? `${C.blue}18` : C.offWhite,
-                  color: site===s ? C.blue : C.textMd, fontWeight:700, fontSize:12, cursor:"pointer",
+                  border: site===s ? `1px solid ${C.textDk}` : `1px solid ${C.border}`,
+                  background: site===s ? C.offWhite : C.white,
+                  color: site===s ? C.textDk : C.textMd, fontWeight:700, fontSize:12, cursor:"pointer",
                   position:"relative", lineHeight:1.3 }}>
                 {s}
                 {recent && <span style={{ display:"block", fontSize:9, color:C.low, fontWeight:700, marginTop:2 }}>
@@ -1408,9 +1383,8 @@ export default function App() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap');
-        *,*::before,*::after{box-sizing:border-box;margin:0;}
-        body{background:${C.offWhite};font-family:'Nunito',sans-serif;}
+                *,*::before,*::after{box-sizing:border-box;margin:0;}
+        body{background:${C.offWhite};font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;}
         ::-webkit-scrollbar{display:none;}
         @keyframes pop{0%{transform:scale(.88);opacity:0}60%{transform:scale(1.05)}100%{transform:scale(1);opacity:1}}
         @keyframes slideUp{from{transform:translateY(40px);opacity:0}to{transform:translateY(0);opacity:1}}
@@ -1419,21 +1393,21 @@ export default function App() {
         .slideUp{animation:slideUp .3s ease both;}
       `}</style>
 
-      <div style={{ fontFamily:"'Nunito',sans-serif", minHeight:"100vh", background:C.offWhite,
+      <div style={{ fontFamily:FONT, minHeight:"100vh", background:C.offWhite,
         maxWidth:480, margin:"0 auto", paddingBottom:20 }}>
 
         {/* ── Header ── */}
-        <div style={{ background:`linear-gradient(160deg,${C.navyDk} 0%,#200040 40%,#2D0057 100%)`,
-          padding:"36px 20px 16px", position:"relative", overflow:"hidden" }}>
+        <div style={{ background:C.white, borderBottom:`1px solid ${C.border}`,
+          padding:"20px 20px 14px", position:"relative" }}>
 
 
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
             <div style={{ flex:1 }}>
-              <div style={{ color:C.teal, fontSize:10, fontWeight:800, letterSpacing:1.5, textTransform:"uppercase" }}>
-                Insulin Tracker
+              <div style={{ color:C.textLt, fontSize:11, fontWeight:600, letterSpacing:0.3 }}>
+                Hudson's data
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:4, flexWrap:"wrap" }}>
-                {tab !== "stats" && <div style={{ color:"#fff", fontSize:22, fontWeight:900, lineHeight:1.1 }}>Hey Hudson 🏈</div>}
+                {tab !== "stats" && <div style={{ color:C.textDk, fontSize:17, fontWeight:600, lineHeight:1.1 }}>Hey Hudson</div>}
                 {tab !== "stats" && dex?.value ? (() => {
                   const bgColor = dex.value<TARGET_LOW?"#F5A623":dex.value>TARGET_HIGH?"#E84040":"#4ADE80";
                   const tr=dex.trend;
@@ -1453,16 +1427,16 @@ export default function App() {
                   else if (allWell)                    alert={key:"allWell",    msg:"All is well ✅",                  color:"#4ADE80",pulse:false};
                   return (
                     <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-                      <div style={{ display:"flex",alignItems:"center",gap:8,background:bgColor+"22",
-                        border:`2px solid ${bgColor}55`,borderRadius:30,padding:"6px 16px",boxShadow:`0 0 16px ${bgColor}33` }}>
-                        <div style={{ width:10,height:10,borderRadius:"50%",background:bgColor,boxShadow:`0 0 8px ${bgColor}` }}/>
-                        <span style={{ color:"#fff",fontWeight:900,fontSize:22,letterSpacing:-0.5 }}>{dex.value}</span>
-                        <span style={{ color:arrowColor,fontWeight:900,fontSize:22,lineHeight:1 }}>{trendArrow(dex.trend)}</span>
-                        {dex.ageMinutes>0&&<span style={{ color:"rgba(255,255,255,0.4)",fontSize:10,fontWeight:700 }}>{dex.ageMinutes}m</span>}
+                      <div style={{ display:"flex",alignItems:"baseline",gap:8 }}>
+                        <span style={{ color:C.textDk,fontWeight:700,fontSize:40,letterSpacing:-1.5,lineHeight:1 }}>{dex.value}</span>
+                        <span style={{ color:C.textDk,fontWeight:400,fontSize:26,lineHeight:1 }}>{trendArrow(dex.trend)}</span>
+                        <span style={{ color:C.textLt,fontSize:11,fontWeight:500 }}>
+                          mg/dL{dex.ageMinutes>0?` · ${dex.ageMinutes} min ago`:""}
+                        </span>
                       </div>
                       {alert&&(
-                        <div style={{ fontSize:12,fontWeight:800,color:alert.color,background:alert.color+"18",
-                          border:`1.5px solid ${alert.color}44`,borderRadius:20,padding:"4px 12px",
+                        <div style={{ fontSize:12,fontWeight:600,color:alert.color,background:alert.color+"14",
+                          border:`1px solid ${alert.color}33`,borderRadius:8,padding:"4px 10px",
                           animation:alert.pulse?"pulse 1s ease-in-out infinite":"none",maxWidth:160,lineHeight:1.3 }}>
                           {alert.msg}
                         </div>
@@ -1470,42 +1444,42 @@ export default function App() {
                     </div>
                   );
                 })() : dexLoading ? (
-                  <div style={{ background:"rgba(255,255,255,0.08)",borderRadius:30,padding:"6px 16px",
-                    color:"rgba(255,255,255,0.4)",fontSize:12,fontWeight:600 }}>📡 Connecting…</div>
+                  <div style={{ color:C.textLt,fontSize:13,fontWeight:500 }}>Connecting…</div>
                 ) : null}
               </div>
               {tab !== "stats" && (
-                <div style={{ color:"rgba(255,255,255,0.45)", fontSize:11, marginTop:2 }}>
+                <div style={{ color:C.textLt, fontSize:12, marginTop:3 }}>
                   {new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}
                 </div>
               )}
             </div>
             <button type="button" onClick={()=>setShowSettings(true)}
-              style={{ background:"rgba(255,255,255,0.12)",border:"1.5px solid rgba(255,255,255,0.20)",
-                borderRadius:12,width:44,height:44,cursor:"pointer",fontSize:20,
+              style={{ background:C.white,border:`1px solid ${C.border}`,
+                borderRadius:10,width:38,height:38,cursor:"pointer",fontSize:16,
                 display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,padding:0,marginLeft:12 }}>⚙️</button>
           </div>
 
           {/* 3-hr chart — hide on trends tab */}
           {tab !== "stats" && history.length>1&&(
             <div style={{ marginTop:10, marginBottom:2 }}>
-              <div style={{ fontSize:9,fontWeight:800,color:"rgba(255,255,255,0.4)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:4 }}>
-                Last 3 Hours
+              <div style={{ fontSize:12,fontWeight:600,color:C.textDk,marginBottom:6 }}>
+                Today
               </div>
               <BGTrendChart history={history}/>
             </div>
           )}
 
           {/* Today strip — hide on trends tab */}
-          {tab !== "stats" && <div style={{ marginTop:10,background:"rgba(255,255,255,0.07)",borderRadius:12,padding:"8px 14px",display:"flex",gap:20 }}>
+          {tab !== "stats" && <div style={{ marginTop:12,display:"flex",gap:8 }}>
             {[
               { label:"Doses",         value:todayE.length||"—" },
               { label:"Total carbs",   value:todayE.length?todayE.reduce((s,e)=>s+e.carbs,0)+"g":"—" },
               { label:"Total insulin", value:todayE.length?todayE.reduce((s,e)=>s+e.dose,0)+"u":"—" },
             ].map(s=>(
-              <div key={s.label}>
-                <div style={{ color:"#fff",fontWeight:800,fontSize:16 }}>{s.value}</div>
-                <div style={{ color:"rgba(255,255,255,0.45)",fontSize:11,fontWeight:600 }}>{s.label}</div>
+              <div key={s.label} style={{ flex:1,background:C.white,border:`1px solid ${C.border}`,
+                borderRadius:10,padding:"9px 10px" }}>
+                <div style={{ color:C.textLt,fontSize:10,fontWeight:500 }}>{s.label}</div>
+                <div style={{ color:C.textDk,fontWeight:700,fontSize:18,marginTop:2 }}>{s.value}</div>
               </div>
             ))}
           </div>}
@@ -1518,8 +1492,8 @@ export default function App() {
             <button key={id} type="button" onClick={()=>setTab(id)}
               style={{ flex:1,padding:"14px 0",border:"none",background:"none",cursor:"pointer",
                 fontWeight:700,fontSize:12,fontFamily:"inherit",
-                color:tab===id?C.blue:C.textLt,
-                borderBottom:tab===id?`3px solid ${C.blue}`:"3px solid transparent",transition:"all .18s" }}>{label}</button>
+                color:tab===id?C.textDk:C.textLt,
+                borderBottom:tab===id?`2px solid ${C.textDk}`:"2px solid transparent",transition:"all .15s" }}>{label}</button>
           ))}
         </div>
 
@@ -1532,11 +1506,11 @@ export default function App() {
               <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14 }}>
                 {MEALS.map(m=>(
                   <button key={m.id} type="button" onClick={()=>setMealId(m.id)}
-                    style={{ border:mealId===m.id?`2.5px solid ${C.blue}`:`2px solid ${C.border}`,
-                      background:mealId===m.id?`${C.blue}11`:C.white,
+                    style={{ border:mealId===m.id?`1px solid ${C.textDk}`:`1px solid ${C.border}`,
+                      background:mealId===m.id?C.offWhite:C.white,
                       borderRadius:14,padding:"10px 4px",cursor:"pointer",textAlign:"center",transition:"all .18s",fontFamily:"inherit" }}>
                     <div style={{ fontSize:22 }}>{m.icon}</div>
-                    <div style={{ fontSize:11,fontWeight:700,marginTop:2,color:mealId===m.id?C.blue:C.textMd }}>{m.label}</div>
+                    <div style={{ fontSize:11,fontWeight:700,marginTop:2,color:mealId===m.id?C.textDk:C.textMd }}>{m.label}</div>
                   </button>
                 ))}
               </div>
@@ -1548,9 +1522,9 @@ export default function App() {
                   {[15,30,45,60,75,90].map(v=>(
                     <button key={v} type="button" onClick={()=>setCarbs(v)}
                       style={{ padding:"6px 0",borderRadius:20,fontFamily:"inherit",textAlign:"center",
-                        border:carbs===v?`2px solid ${C.blue}`:`1.5px solid ${C.border}`,
-                        background:carbs===v?`${C.blue}18`:C.offWhite,
-                        color:carbs===v?C.blue:C.textMd,fontWeight:700,fontSize:13,cursor:"pointer" }}>{v}g</button>
+                        border:carbs===v?`1px solid ${C.textDk}`:`1px solid ${C.border}`,
+                        background:carbs===v?C.textDk:C.white,
+                        color:carbs===v?"#fff":C.textMd,fontWeight:700,fontSize:13,cursor:"pointer" }}>{v}g</button>
                   ))}
                 </div>
               </Card>
@@ -1578,7 +1552,7 @@ export default function App() {
                       <div style={{ textAlign:"center",marginTop:10 }}>
                         <button type="button" onClick={()=>setBg(dex.value)}
                           style={{ background:"none",border:`1.5px solid ${C.border}`,borderRadius:20,
-                            padding:"5px 12px",fontSize:12,fontWeight:700,color:C.blue,cursor:"pointer",fontFamily:"inherit" }}>
+                            padding:"5px 12px",fontSize:12,fontWeight:500,color:C.textDk,cursor:"pointer",fontFamily:"inherit" }}>
                           📡 Pull from Dexcom ({dex.value} {trendArrow(dex.trend)})
                         </button>
                       </div>
@@ -1587,9 +1561,9 @@ export default function App() {
                       {[80,100,120,150,180,220,280].map(v=>(
                         <button key={v} type="button" onClick={()=>setBg(v)}
                           style={{ padding:"5px 10px",borderRadius:20,fontFamily:"inherit",
-                            border:bg===v?`2px solid ${C.blue}`:`1.5px solid ${C.border}`,
-                            background:bg===v?`${C.blue}18`:C.offWhite,
-                            color:bg===v?C.blue:C.textMd,fontWeight:700,fontSize:12,cursor:"pointer" }}>{v}</button>
+                            border:bg===v?`1px solid ${C.textDk}`:`1px solid ${C.border}`,
+                            background:bg===v?C.textDk:C.white,
+                            color:bg===v?"#fff":C.textMd,fontWeight:700,fontSize:12,cursor:"pointer" }}>{v}</button>
                       ))}
                     </div>
                   </>
@@ -1598,16 +1572,12 @@ export default function App() {
                 )}
               </Card>
 
-              <Card style={{ background:`linear-gradient(135deg,#1A0033 0%,#3B0075 100%)`,
-                border:"none",marginBottom:14,position:"relative",overflow:"hidden" }}>
-                <div style={{ position:"absolute",right:-30,top:-30,width:130,height:130,
-                  borderRadius:"50%",background:"rgba(255,182,18,.08)",pointerEvents:"none" }}/>
-                <div style={{ color:"rgba(255,255,255,.6)",fontSize:11,fontWeight:800,
-                  letterSpacing:1.5,textTransform:"uppercase",marginBottom:8 }}>Recommended Dose</div>
+              <Card style={{ marginBottom:14 }}>
+                <div style={{ color:C.textLt,fontSize:12,fontWeight:500,marginBottom:6 }}>Recommended dose</div>
                 <div style={{ display:"flex",alignItems:"baseline",gap:6,marginBottom:16 }}>
                   <div className="pop" key={dose.total}
-                    style={{ fontSize:64,fontWeight:900,color:"#fff",lineHeight:1 }}>{dose.total}</div>
-                  <div style={{ fontSize:22,color:"#FFB612",fontWeight:800 }}>units</div>
+                    style={{ fontSize:56,fontWeight:700,color:C.textDk,lineHeight:1,letterSpacing:-2 }}>{dose.total}</div>
+                  <div style={{ fontSize:18,color:C.textLt,fontWeight:500 }}>units</div>
                 </div>
                 <div style={{ display:"flex",gap:8 }}>
                   {[
@@ -1615,9 +1585,10 @@ export default function App() {
                     { label:"Correction",          val:dose.correction+"u" },
                     { label:`1:${ratios[mealId]}g`, val:carbs+"g" },
                   ].map(b=>(
-                    <div key={b.label} style={{ background:"rgba(255,255,255,.09)",borderRadius:12,padding:"8px 10px",flex:1,textAlign:"center" }}>
-                      <div style={{ color:"rgba(255,255,255,.55)",fontSize:10,fontWeight:700 }}>{b.label}</div>
-                      <div style={{ color:"#fff",fontSize:17,fontWeight:800 }}>{b.val}</div>
+                    <div key={b.label} style={{ background:C.offWhite,border:`1px solid ${C.border}`,
+                      borderRadius:10,padding:"8px 10px",flex:1,textAlign:"center" }}>
+                      <div style={{ color:C.textLt,fontSize:10,fontWeight:500 }}>{b.label}</div>
+                      <div style={{ color:C.textDk,fontSize:16,fontWeight:600 }}>{b.val}</div>
                     </div>
                   ))}
                 </div>
@@ -1677,7 +1648,6 @@ export default function App() {
 
       {showSettings&&(
         <SettingsModal ratios={ratios} setRatios={saveRatios}
-          alertNumbers={alertNumbers} setAlertNumbers={saveAlertNumbers}
           rangeLow={rangeLow}   setRangeLow={v=>{setRangeLow(v);   localStore.set("hud-range-low",v);}}
           rangeHigh={rangeHigh} setRangeHigh={v=>{setRangeHigh(v); localStore.set("hud-range-high",v);}}
           mealWindows={mealWindows} setMealWindows={saveMealWindows}
