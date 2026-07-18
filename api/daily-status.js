@@ -10,7 +10,7 @@ const SUBS_KEY  = "hudson-push-subs";
 const SITES_KEY = "hudson-site-log";
 const WEAR_DAYS = { pod: 3, sensor: 10 };
 const LABEL     = { pod: "Pod", sensor: "G7" };
-const ICON      = { pod: "💊", sensor: "📡" };
+const ICON      = { pod: "🟠", sensor: "🟢" };
 const TZ        = "America/New_York";
 
 function fmtWhen(ts) {
