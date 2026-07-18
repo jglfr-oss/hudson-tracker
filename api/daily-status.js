@@ -91,9 +91,9 @@ function buildMessage(sites) {
     lines.push(line);
   }
 
-  const title = anyOverdue ? "⚠️ Device change due"
-              : anySoon    ? "⏳ Device change coming up"
-              : "☀️ Good morning";
+  const title = anyOverdue ? "Device change due"
+              : anySoon    ? "Device change coming up"
+              : "Good morning";
 
   return { title, body: lines.join("\n") };
 }
@@ -133,7 +133,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ sent: 0, reason: "no devices registered", title, body });
     }
 
-    const payload = JSON.stringify({ title, body, url: "/", tag: "daily-device-status" });
+    const payload = JSON.stringify({ title, body, url: "/?open=sites", tag: "daily-device-status" });
     const alive = [];
     let sent = 0, failed = 0, pruned = 0;
 
