@@ -1276,9 +1276,35 @@ function SitesTab({ sites, onAdd, onDelete }) {
   );
 }
 
+// ═══ Full-screen Sheet (opened from the + button) ════════════════════════════
+function Sheet({ title, onClose, children }) {
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:9000, background:C.white,
+      overflowY:"auto", WebkitOverflowScrolling:"touch", animation:"slideUp .22s ease both" }}>
+      <div style={{ maxWidth:480, margin:"0 auto", padding:"0 16px 48px" }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+          padding:"18px 0 12px", position:"sticky", top:0, background:C.white, zIndex:2 }}>
+          <div style={{ fontWeight:800, fontSize:20, color:C.textDk }}>{title}</div>
+          <button type="button" onClick={onClose}
+            style={{ background:C.tile, border:"none", borderRadius:"50%", width:36, height:36,
+              fontSize:15, cursor:"pointer", color:C.textDk, fontFamily:"inherit",
+              display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 // ═══ Main App ═════════════════════════════════════════════════════════════════
 export default function App() {
-  const [tab,          setTab         ] = useState("dose");
+  const [sheet,        setSheet       ] = useState(null); // null | "dose" | "log" | "sites"
+  const [fabOpen,      setFabOpen     ] = useState(false);
   const [mealId,       setMealId      ] = useState(timeLabel);
   const [carbs,        setCarbs       ] = useState(30);
   const [bg,           setBg          ] = useState(120);
@@ -1397,7 +1423,7 @@ export default function App() {
       `}</style>
 
       <div style={{ fontFamily:FONT, minHeight:"100vh", background:C.offWhite,
-        maxWidth:480, margin:"0 auto", paddingBottom:20 }}>
+        maxWidth:480, margin:"0 auto", paddingBottom:110 }}>
 
         {/* ── Header ── */}
         <div style={{ background:C.white,
@@ -1409,7 +1435,7 @@ export default function App() {
 
               <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:4, flexWrap:"wrap" }}>
                 
-                {tab !== "stats" && dex?.value ? (() => {
+                {dex?.value ? (() => {
                   const bgColor = dex.value<TARGET_LOW?C.high:dex.value>TARGET_HIGH?C.low:C.textDk;
                   const tr=dex.trend;
                   const isDblDn=tr===7||tr==="DoubleDown";
@@ -1443,7 +1469,7 @@ export default function App() {
                   <div style={{ color:C.textLt,fontSize:13,fontWeight:500 }}>Connecting…</div>
                 ) : null}
               </div>
-              {tab !== "stats" && (
+              {(
                 <div style={{ color:C.textMd, fontSize:14, marginTop:4 }}>
                   {dex?.ageMinutes>0 ? `${dex.ageMinutes} min ago | ` : ""}Hudson's data 🏈
                 </div>
@@ -1456,7 +1482,7 @@ export default function App() {
           </div>
 
           {/* 3-hr chart — hide on trends tab */}
-          {tab !== "stats" && history.length>1&&(
+          {history.length>1&&(
             <div style={{ marginTop:10, marginBottom:2 }}>
               <div style={{ fontSize:12,fontWeight:600,color:C.textDk,marginBottom:6 }}>
                 Today
@@ -1466,7 +1492,7 @@ export default function App() {
           )}
 
           {/* Today strip — hide on trends tab */}
-          {tab !== "stats" && <div style={{ marginTop:12,display:"flex",gap:8 }}>
+          {<div style={{ marginTop:12,display:"flex",gap:8 }}>
             {[
               { label:"Doses",         value:todayE.length||"—" },
               { label:"Total carbs",   value:todayE.length?todayE.reduce((s,e)=>s+e.carbs,0)+"g":"—" },
@@ -1481,22 +1507,10 @@ export default function App() {
           </div>}
         </div>
 
-        {/* ── Tabs ── */}
-        <div style={{ display:"flex",background:C.white,borderBottom:`1px solid ${C.border}`,
-          position:"sticky",top:0,zIndex:10 }}>
-          {[["dose","💉 Dose"],["log","📋 Log"],["sites","📍 Sites"],["stats","📊 Trends"]].map(([id,label])=>(
-            <button key={id} type="button" onClick={()=>setTab(id)}
-              style={{ flex:1,padding:"14px 0",border:"none",background:"none",cursor:"pointer",
-                fontWeight:800,fontSize:13,fontFamily:"inherit",
-                color:tab===id?C.textDk:C.textLt,
-                borderBottom:tab===id?`3px solid ${C.ravens}`:"3px solid transparent",transition:"all .15s" }}>{label}</button>
-          ))}
-        </div>
-
         <div style={{ padding:"0 16px" }}>
 
           {/* ══ DOSE ══ */}
-          {tab==="dose"&&(
+          {sheet==="dose"&&(<Sheet title="💉 Dose Calculator" onClose={()=>setSheet(null)}>
             <div className="slideUp">
               <div style={{ padding:"0 0 14px" }}><QuoteBanner /></div>
               <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14 }}>
@@ -1597,10 +1611,10 @@ export default function App() {
                 🏈 Like #89 — manage it, don't let it manage you · Rounds to nearest 0.5u
               </div>
             </div>
-          )}
+          </Sheet>)}
 
           {/* ══ LOG ══ */}
-          {tab==="log"&&(
+          {sheet==="log"&&(<Sheet title="📋 Dose Log" onClose={()=>setSheet(null)}>
             <div className="slideUp">
               {log.length===0 ? (
                 <div style={{ textAlign:"center",padding:"60px 0",color:C.textLt }}>
@@ -1630,17 +1644,53 @@ export default function App() {
                 </>
               )}
             </div>
-          )}
+          </Sheet>)}
 
           {/* ══ SITES ══ */}
-          {tab==="sites"&&<SitesTab sites={sites} onAdd={addSite} onDelete={removeSite}/>}
+          {sheet==="sites"&&(<Sheet title="📍 Sites" onClose={()=>setSheet(null)}>
+            <SitesTab sites={sites} onAdd={addSite} onDelete={removeSite}/>
+          </Sheet>)}
 
-          {/* ══ ANALYTICS ══ */}
-          {tab==="stats"&&<AnalyticsTab bgHistory={history} ratios={ratios} rangeLow={rangeLow} rangeHigh={rangeHigh} mealWindows={mealWindows}/>}
+          {/* ══ HOME = TRENDS ══ */}
+          <AnalyticsTab bgHistory={history} ratios={ratios} rangeLow={rangeLow} rangeHigh={rangeHigh} mealWindows={mealWindows}/>
         </div>
 
 
       </div>
+
+      {/* ── + button (Sugarmate-style) ── */}
+      {!sheet && (
+        <>
+          {fabOpen && (
+            <div onClick={()=>setFabOpen(false)}
+              style={{ position:"fixed", inset:0, zIndex:8000, background:"rgba(0,0,0,0.28)" }}/>
+          )}
+          <div style={{ position:"fixed", left:0, right:0, bottom:26, zIndex:8500,
+            display:"flex", flexDirection:"column", alignItems:"center", gap:10, pointerEvents:"none" }}>
+            {fabOpen && [
+              ["sites","📍","Log a site change"],
+              ["log",  "📋","Dose history"],
+              ["dose", "💉","Calculate a dose"],
+            ].map(([id,icon,label])=>(
+              <button key={id} type="button"
+                onClick={()=>{ setSheet(id); setFabOpen(false); }}
+                style={{ pointerEvents:"auto", display:"flex", alignItems:"center", gap:10,
+                  background:C.white, border:"none", borderRadius:26, padding:"12px 20px",
+                  fontWeight:700, fontSize:15, color:C.textDk, fontFamily:"inherit",
+                  boxShadow:"0 4px 18px rgba(0,0,0,0.18)", cursor:"pointer",
+                  animation:"slideUp .18s ease both" }}>
+                <span style={{ fontSize:18 }}>{icon}</span>{label}
+              </button>
+            ))}
+            <button type="button" onClick={()=>setFabOpen(o=>!o)}
+              style={{ pointerEvents:"auto", width:58, height:58, borderRadius:"50%",
+                background:C.ravens, color:"#fff", fontSize:28, fontWeight:400, border:"none",
+                cursor:"pointer", boxShadow:"0 6px 22px rgba(36,23,115,0.45)", fontFamily:"inherit",
+                display:"flex", alignItems:"center", justifyContent:"center",
+                transform:fabOpen?"rotate(45deg)":"none", transition:"transform .18s" }}>+</button>
+          </div>
+        </>
+      )}
 
       {showSettings&&(
         <SettingsModal ratios={ratios} setRatios={saveRatios}
