@@ -933,6 +933,144 @@ function AskTab() {
 }
 
 
+
+// ═══ Glooko CSV import ═══════════════════════════════════════════════════════
+// Glooko CSVs look like:
+//   line 1: Name:...,Date Range:...
+//   line 2: column headers
+//   line 3+: data
+// We detect which file is which from the headers, so users can select any
+// combination of the CSVs from the export zip.
+function parseGlookoCSV(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 3) return null;
+
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(5, lines.length); i++) {
+    if (/timestamp/i.test(lines[i])) { headerIdx = i; break; }
+  }
+  if (headerIdx === -1) return null;
+
+  const split = l => {
+    const out = []; let cur = "", q = false;
+    for (const ch of l) {
+      if (ch === '"') q = !q;
+      else if (ch === "," && !q) { out.push(cur); cur = ""; }
+      else cur += ch;
+    }
+    out.push(cur);
+    return out.map(x => x.trim());
+  };
+
+  const cols = split(lines[headerIdx]).map(c => c.toLowerCase());
+  const idx = re => cols.findIndex(c => re.test(c));
+  const iTs    = idx(/timestamp/);
+  const iIns   = idx(/insulin delivered/);
+  const iCarb  = idx(/carbs input/);
+  const iRatio = idx(/carbs ratio/);
+  const iBG    = idx(/blood glucose input/);
+  const iTotal = idx(/total insulin/);
+  const iBolus = idx(/total bolus/);
+  const iBasal = idx(/total basal/);
+
+  // Parse "2026-04-24 08:27" as local time (avoids UTC drift from Date.parse)
+  const toTs = str => {
+    const m = String(str).match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})/);
+    if (!m) return null;
+    return new Date(+m[1], +m[2]-1, +m[3], +m[4], +m[5]).getTime();
+  };
+  const num = v => { const f = parseFloat(v); return isNaN(f) ? null : f; };
+
+  const boluses = [], dailyTotals = [];
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const c = split(lines[i]);
+    const ts = toTs(c[iTs]);
+    if (!ts) continue;
+
+    if (iIns > -1) {
+      const u = num(c[iIns]);
+      if (u !== null && u > 0) {
+        const rec = { ts, u: Math.round(u*100)/100 };
+        if (iCarb  > -1) rec.c = Math.round(num(c[iCarb]) || 0);
+        if (iRatio > -1 && num(c[iRatio])) rec.r = Math.round(num(c[iRatio]));
+        if (iBG    > -1 && num(c[iBG]))    rec.bg = Math.round(num(c[iBG]));
+        boluses.push(rec);
+      }
+    }
+    if (iTotal > -1 || iBasal > -1) {
+      const d = new Date(ts);
+      const pad = n => String(n).padStart(2,"0");
+      dailyTotals.push({
+        d: `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,
+        bolus: iBolus > -1 ? num(c[iBolus]) : null,
+        basal: iBasal > -1 ? num(c[iBasal]) : null,
+        total: iTotal > -1 ? num(c[iTotal]) : null,
+      });
+    }
+  }
+  return { boluses, dailyTotals };
+}
+
+function GlookoImport({ onImported }) {
+  const [status, setStatus] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const handleFiles = async (files) => {
+    if (!files || files.length === 0) return;
+    setBusy(true); setStatus(null);
+    try {
+      let allB = [], allT = [];
+      for (const f of Array.from(files)) {
+        if (!/\.csv$/i.test(f.name)) continue;
+        const text = await f.text();
+        const parsed = parseGlookoCSV(text);
+        if (parsed) { allB = allB.concat(parsed.boluses); allT = allT.concat(parsed.dailyTotals); }
+      }
+      if (allB.length === 0 && allT.length === 0) {
+        setStatus({ err: "No bolus or insulin data found. Pick bolus_data_1.csv and insulin_data_1.csv from the export." });
+        setBusy(false); return;
+      }
+      const r = await fetch("/api/insulin-store", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ boluses: allB, dailyTotals: allT }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "save failed");
+      setStatus({ ok: `Imported. ${d.boluses} boluses, ${d.dailyTotals} daily totals now stored.` });
+      onImported && onImported();
+    } catch (e) {
+      setStatus({ err: String(e.message || e) });
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div style={{ marginTop:22 }}>
+      <div style={{ fontWeight:800, fontSize:13, color:C.textDk, marginBottom:4 }}>💉 Import Glooko data</div>
+      <div style={{ fontSize:11, color:C.textLt, lineHeight:1.5, marginBottom:10 }}>
+        Export from Glooko web → unzip → pick <b>bolus_data_1.csv</b> and <b>insulin_data_1.csv</b>.
+        Existing records are kept; duplicates are ignored.
+      </div>
+      <label style={{ display:"block", background:C.tile, borderRadius:12, padding:"14px 12px",
+        textAlign:"center", cursor: busy ? "default" : "pointer", fontSize:13, fontWeight:700,
+        color: busy ? C.textLt : C.textDk }}>
+        {busy ? "Importing…" : "Choose CSV files"}
+        <input type="file" accept=".csv" multiple disabled={busy}
+          onChange={e => handleFiles(e.target.files)}
+          style={{ display:"none" }}/>
+      </label>
+      {status?.ok && (
+        <div style={{ marginTop:8, background:C.inRange+"15", borderRadius:10, padding:"9px 12px",
+          fontSize:11, fontWeight:700, color:C.inRange }}>{status.ok}</div>
+      )}
+      {status?.err && (
+        <div style={{ marginTop:8, background:C.high+"12", borderRadius:10, padding:"9px 12px",
+          fontSize:11, fontWeight:700, color:C.high }}>{status.err}</div>
+      )}
+    </div>
+  );
+}
+
 // ═══ Insulin Trends — from Glooko bolus data ═════════════════════════════════
 function InsulinTrends({ insulin, readings, fromTs, toTs, mealWindows, ratios }) {
   const bol = (insulin?.boluses || []).filter(b => b && b.ts >= fromTs && b.ts <= toTs);
@@ -1921,6 +2059,7 @@ function SettingsModal({ ratios, setRatios, rangeLow, setRangeLow, rangeHigh, se
             Re-import the 90-day Sugarmate export (Mar 13 – Jun 11, 2026)
           </div>
           <SeedButton />
+          <GlookoImport />
         </div>
 
         <div style={{ display:"flex", gap:12 }}>
@@ -2588,4 +2727,3 @@ export default function App() {
     </>
   );
 }
-
