@@ -1107,8 +1107,6 @@ function InsightsGrid({ periodReadings, allReadings, periodLabel }) {
         </InsightTile>
 
         <InsightTile label="🦄 Unicorns" sub={P}><Big v={ins.unicornsP} unit="perfect 100s"/></InsightTile>
-        <InsightTile label="Average Glucose" sub="3 hours"><Big v={ins.avg3h} unit="mg/dL"/></InsightTile>
-        <InsightTile label="Average Glucose" sub="24 hours"><Big v={ins.avg24} unit="mg/dL"/></InsightTile>
       </div>
     </div>
   );
