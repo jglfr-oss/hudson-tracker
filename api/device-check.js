@@ -19,7 +19,7 @@ const SITES_KEY = "hudson-site-log";
 const STATE_KEY = "hudson-device-alerts";
 const WEAR_DAYS = { pod: 3, sensor: 10 };
 const LABEL     = { pod: "Pod", sensor: "G7 sensor" };
-const ICON      = { pod: "💊", sensor: "📡" };
+const ICON      = { pod: "🟠", sensor: "🟢" };
 
 async function pushAll(title, body, tag) {
   const subs = (await kv.get(SUBS_KEY)) ?? [];
