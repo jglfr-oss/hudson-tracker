@@ -799,6 +799,149 @@ function SeedButton() {
   );
 }
 
+// ═══ Push Notification Toggle ═════════════════════════════════════════════════
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64  = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw     = window.atob(base64);
+  const view    = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) view[i] = raw.charCodeAt(i);
+  return view;
+}
+
+function PushToggle() {
+  const [status, setStatus]   = useState("loading"); // loading|unsupported|needs-install|off|on|blocked
+  const [busy,   setBusy  ]   = useState(false);
+  const [message, setMessage] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      if (typeof window === "undefined") return;
+      const supported = "serviceWorker" in navigator && "PushManager" in window;
+      if (!supported) {
+        // iOS only exposes push from a home-screen-installed PWA.
+        const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+        const standalone = window.matchMedia("(display-mode: standalone)").matches
+          || window.navigator.standalone === true;
+        setStatus(isIos && !standalone ? "needs-install" : "unsupported");
+        return;
+      }
+      if (Notification.permission === "denied") { setStatus("blocked"); return; }
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        const sub = reg ? await reg.pushManager.getSubscription() : null;
+        setStatus(sub ? "on" : "off");
+      } catch { setStatus("off"); }
+    })();
+  }, []);
+
+  const enable = async () => {
+    setBusy(true); setMessage(null);
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        setStatus(permission === "denied" ? "blocked" : "off");
+        setBusy(false); return;
+      }
+      const reg = await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.ready;
+
+      const key = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+      if (!key) { setMessage("Notifications aren't configured yet."); setBusy(false); return; }
+
+      const sub  = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(key),
+      });
+      const json = sub.toJSON();
+
+      const r = await fetch("/api/push-subscribe", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          endpoint:  json.endpoint,
+          p256dh:    json.keys?.p256dh,
+          auth:      json.keys?.auth,
+          userAgent: navigator.userAgent,
+          label:     /iphone|ipad/i.test(navigator.userAgent) ? "iPhone"
+                   : /android/i.test(navigator.userAgent) ? "Android" : "Computer",
+        }),
+      });
+      if (!r.ok) { setMessage("Couldn't save notification settings."); setBusy(false); return; }
+      setStatus("on");
+      setMessage("Notifications are on for this device.");
+    } catch {
+      setMessage("Couldn't turn on notifications on this device.");
+    }
+    setBusy(false);
+  };
+
+  const disable = async () => {
+    setBusy(true);
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg ? await reg.pushManager.getSubscription() : null;
+      if (sub) {
+        await fetch("/api/push-subscribe", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: sub.endpoint, remove: true }),
+        }).catch(()=>{});
+        await sub.unsubscribe();
+      }
+    } catch {}
+    setStatus("off");
+    setMessage("Notifications are off for this device.");
+    setBusy(false);
+  };
+
+  if (status === "loading") return null;
+
+  const box = { background:C.offWhite, border:`1.5px solid ${C.border}`, borderRadius:12,
+    padding:"10px 14px", fontSize:12, color:C.textMd, lineHeight:1.5, fontWeight:600 };
+
+  if (status === "unsupported")
+    return <div style={box}>This browser doesn't support notifications.</div>;
+
+  if (status === "needs-install")
+    return (
+      <div style={box}>
+        📲 To get notifications on this phone: tap <strong>Share</strong> → <strong>Add to Home Screen</strong>,
+        then open the app from the home screen and turn notifications on here.
+      </div>
+    );
+
+  if (status === "blocked")
+    return (
+      <div style={box}>
+        🔕 Notifications are blocked for this app. Turn them back on in your device settings, then reload.
+      </div>
+    );
+
+  return (
+    <div>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 }}>
+        <div style={{ flex:1 }}>
+          <div style={{ fontWeight:700, color:C.textDk, fontSize:14 }}>
+            {status === "on" ? "✅ On for this device" : "Off for this device"}
+          </div>
+          <div style={{ fontSize:11, color:C.textLt, marginTop:2 }}>
+            Daily 8am pod &amp; sensor reminder
+          </div>
+        </div>
+        <Btn variant={status==="on" ? "secondary" : "primary"}
+          onClick={status === "on" ? disable : enable}
+          disabled={busy}
+          style={{ fontSize:13, padding:"9px 18px", flexShrink:0 }}>
+          {busy ? "…" : status === "on" ? "Turn off" : "Turn on"}
+        </Btn>
+      </div>
+      {message && <div style={{ fontSize:11, color:C.textLt, marginTop:8 }}>{message}</div>}
+      <div style={{ fontSize:11, color:C.textLt, marginTop:8, lineHeight:1.5 }}>
+        Each phone needs turning on separately — do this on Hudson's phone and each parent's.
+      </div>
+    </div>
+  );
+}
+
 // ═══ Settings Modal ═══════════════════════════════════════════════════════════
 function SettingsModal({ ratios, setRatios, alertNumbers, setAlertNumbers, rangeLow, setRangeLow, rangeHigh, setRangeHigh, mealWindows, setMealWindows, onClose }) {
   const [local, setLocal]               = useState({ ...ratios });
@@ -905,6 +1048,15 @@ function SettingsModal({ ratios, setRatios, alertNumbers, setAlertNumbers, range
             style={{ background:C.offWhite, border:`1.5px dashed ${C.border}`, borderRadius:12,
               padding:"8px 16px", color:C.blue, fontWeight:700, fontSize:13,
               cursor:"pointer", fontFamily:"inherit", width:"100%" }}>+ Add Number</button>
+        </div>
+
+        {/* Push notifications */}
+        <div style={{ marginBottom:24 }}>
+          <div style={{ fontWeight:900, fontSize:16, color:C.textDk, marginBottom:4 }}>🔔 Daily Reminders</div>
+          <div style={{ color:C.textMd, fontSize:12, marginBottom:12 }}>
+            An 8am notification with pod and sensor wear time remaining
+          </div>
+          <PushToggle />
         </div>
 
         {/* Re-import history */}
