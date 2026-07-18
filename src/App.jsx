@@ -345,12 +345,43 @@ function BGChart({ live, store }) {
       label: new Date(ts).toLocaleTimeString([], { hour:"numeric", minute: winMs<=6*3600000 ? "2-digit" : undefined }) };
   });
 
+  const liveEdge = Math.max(dataMax, Date.now());
+
+  // Pan a full window at a time, and skip over stretches with no readings
+  // (collection gaps) instead of crawling through them.
   const pan = dir => {
-    const step = winMs * 0.5;
-    const base = isLive ? Math.max(dataMax, Date.now()) : endTs;
-    const next = base + dir*step;
-    if (next >= Math.max(dataMax, Date.now())) setEndTs(null);
-    else setEndTs(Math.max(dataMin + winMs, next));
+    const base = isLive ? liveEdge : endTs;
+    let next = base + dir*winMs;
+
+    if (dir < 0) {
+      // Going back: if the new window would be empty, land on the newest
+      // reading older than it instead.
+      const hasData = data.some(r => r.ts >= next - winMs && r.ts <= next);
+      if (!hasData) {
+        const prev = [...data].reverse().find(r => r.ts < next);
+        if (prev) next = prev.ts + winMs*0.15; // leave a little headroom
+      }
+    } else {
+      const hasData = data.some(r => r.ts >= next - winMs && r.ts <= next);
+      if (!hasData) {
+        const nxt = data.find(r => r.ts > next);
+        if (nxt) next = nxt.ts + winMs*0.85;
+      }
+    }
+
+    if (next >= liveEdge) setEndTs(null);
+    else setEndTs(Math.max(dataMin + winMs*0.25, next));
+  };
+
+  // Jump straight to the newest reading before the current window
+  const jumpToData = back => {
+    const target = back
+      ? [...data].reverse().find(r => r.ts < left)
+      : data.find(r => r.ts > right);
+    if (!target) return;
+    const next = back ? target.ts + winMs*0.85 : target.ts + winMs*0.15;
+    if (next >= liveEdge) setEndTs(null); else setEndTs(next);
+    setTip(null);
   };
 
   const locate = clientX => {
@@ -378,8 +409,8 @@ function BGChart({ live, store }) {
         const dxFrac = (cx - startRef.current.cx) / rect.width;
         if (Math.abs(dxFrac) > 0.01) {
           const next = startRef.current.end - dxFrac*winMs;
-          if (next >= Math.max(dataMax, Date.now())) setEndTs(null);
-          else setEndTs(Math.max(dataMin + winMs, next));
+          if (next >= liveEdge) setEndTs(null);
+          else setEndTs(Math.max(dataMin + winMs*0.25, next));
           setTip(null);
           return;
         }
@@ -441,8 +472,24 @@ function BGChart({ live, store }) {
         {new Date(left).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
         {" – "}
         {new Date(right).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
-        {pts.length===0 && " · no readings in this window"}
       </div>
+
+      {pts.length===0 && (
+        <div style={{ background:C.tile, borderRadius:12, padding:"10px 12px", marginBottom:6,
+          fontSize:12, color:C.textMd, fontWeight:600, display:"flex",
+          alignItems:"center", justifyContent:"space-between", gap:10 }}>
+          <span>No readings in this window</span>
+          {[...data].reverse().find(r => r.ts < left) && (
+            <button type="button" onClick={()=>jumpToData(true)}
+              style={{ background:C.textDk, color:"#fff", border:"none", borderRadius:12,
+                padding:"6px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit",
+                flexShrink:0 }}>
+              ← Jump to {new Date([...data].reverse().find(r => r.ts < left).ts)
+                .toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+            </button>
+          )}
+        </div>
+      )}
 
       <svg ref={dragRef} viewBox={`0 0 ${W} ${H}`}
         style={{ width:"100%", height:"auto", display:"block", overflow:"visible",
