@@ -16,6 +16,8 @@ const C = {
   high:    "#FF3B30",
   inRange: "#34C759",
   band:    "#F0F0F2",
+  ravens:  "#241773",
+  gold:    "#9E7C0C",
 };
 
 // ═══ Config ═══════════════════════════════════════════════════════════════════
@@ -751,10 +753,10 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
 function QuoteBanner() {
   const q = getDailyQuote();
   return (
-    <div style={{ background:C.white, border:`1px solid ${C.border}`,
+    <div style={{ background:C.white, border:`1px solid ${C.border}`, borderLeft:`3px solid ${C.ravens}`,
       borderRadius:12, padding:"16px 18px", marginBottom:14, position:"relative", overflow:"hidden" }}>
-      <div style={{ fontSize:11, fontWeight:600, color:C.textLt, marginBottom:6 }}>
-        Daily note
+      <div style={{ fontSize:11, fontWeight:700, color:C.ravens, letterSpacing:0.4, marginBottom:6 }}>
+        🏈 MARK ANDREWS MODE
       </div>
       <div style={{ fontSize:15, fontWeight:500, color:C.textDk, lineHeight:1.45, marginBottom:6 }}>{q.text}</div>
       <div style={{ fontSize:12, color:C.textLt }}>— {q.attr}</div>
@@ -1407,13 +1409,10 @@ export default function App() {
                 Hudson's data
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:4, flexWrap:"wrap" }}>
-                {tab !== "stats" && <div style={{ color:C.textDk, fontSize:17, fontWeight:600, lineHeight:1.1 }}>Hey Hudson</div>}
+                {tab !== "stats" && <div style={{ color:C.textDk, fontSize:17, fontWeight:600, lineHeight:1.1 }}>Hey Hudson 🏈</div>}
                 {tab !== "stats" && dex?.value ? (() => {
-                  const bgColor = dex.value<TARGET_LOW?"#F5A623":dex.value>TARGET_HIGH?"#E84040":"#4ADE80";
+                  const bgColor = dex.value<TARGET_LOW?C.high:dex.value>TARGET_HIGH?C.low:C.textDk;
                   const tr=dex.trend;
-                  const arrowColor=(tr===1||tr==="DoubleUp"||tr===7||tr==="DoubleDown")?"#E84040"
-                    :(tr===2||tr==="SingleUp"||tr===6||tr==="SingleDown")?"#F5A623"
-                    :(tr===3||tr==="FortyFiveUp"||tr===5||tr==="FortyFiveDown")?"#FFD166":"#4ADE80";
                   const isDblDn=tr===7||tr==="DoubleDown";
                   const isSglDn=tr===6||tr==="SingleDown";
                   const isAngDn=tr===5||tr==="FortyFiveDown";
@@ -1428,8 +1427,8 @@ export default function App() {
                   return (
                     <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
                       <div style={{ display:"flex",alignItems:"baseline",gap:8 }}>
-                        <span style={{ color:C.textDk,fontWeight:700,fontSize:40,letterSpacing:-1.5,lineHeight:1 }}>{dex.value}</span>
-                        <span style={{ color:C.textDk,fontWeight:400,fontSize:26,lineHeight:1 }}>{trendArrow(dex.trend)}</span>
+                        <span style={{ color:bgColor,fontWeight:700,fontSize:40,letterSpacing:-1.5,lineHeight:1 }}>{dex.value}</span>
+                        <span style={{ color:bgColor,fontWeight:400,fontSize:26,lineHeight:1 }}>{trendArrow(dex.trend)}</span>
                         <span style={{ color:C.textLt,fontSize:11,fontWeight:500 }}>
                           mg/dL{dex.ageMinutes>0?` · ${dex.ageMinutes} min ago`:""}
                         </span>
@@ -1598,7 +1597,7 @@ export default function App() {
                 {confirmed?"✓ Logged!":`Log ${dose.total}u for ${meal?.label}`}
               </Btn>
               <div style={{ textAlign:"center",color:C.textLt,fontSize:11,margin:"10px 0 20px" }}>
-                💜 Like #89 — manage it, don't let it manage you · Rounds to nearest 0.5u
+                🏈 Like #89 — manage it, don't let it manage you · Rounds to nearest 0.5u
               </div>
             </div>
           )}
