@@ -25,6 +25,27 @@ const MEALS = [
   { id:"snack",     label:"Snack",     icon:"🍎",  defaultRatio:15 },
 ];
 
+// ═══ Device site tracking ════════════════════════════════════════════════════
+// Pods last ~3 days, G7 sensors ~10 days.
+const DEVICES = {
+  pod:    { label:"Pod",    icon:"💊", wearDays:3,  color:"#9B3FC8" },
+  sensor: { label:"Sensor", icon:"📡", wearDays:10, color:"#0EA5A5" },
+};
+
+const SITE_OPTIONS = {
+  pod: [
+    "Abdomen — L", "Abdomen — R",
+    "Lower back — L", "Lower back — R",
+    "Upper arm — L", "Upper arm — R",
+    "Thigh — L", "Thigh — R",
+  ],
+  sensor: [
+    "Upper arm — L", "Upper arm — R",
+    "Abdomen — L", "Abdomen — R",
+    "Upper buttock — L", "Upper buttock — R",
+  ],
+};
+
 // These are defaults — overridden by user settings stored in localStore
 let TARGET_LOW  = 80;
 let TARGET_HIGH = 180;
@@ -110,6 +131,11 @@ const localStore = {
 const sharedLog = {
   get:  async () => { try { const r=await fetch("/api/log-get"); return r.ok?await r.json():[]; } catch { return []; } },
   save: async (log) => { try { await fetch("/api/log-save",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({log}) }); } catch {} },
+};
+
+const sharedSites = {
+  get:  async () => { try { const r=await fetch("/api/site-log"); return r.ok?await r.json():[]; } catch { return []; } },
+  save: async (sites) => { try { await fetch("/api/site-log",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({sites}) }); } catch {} },
 };
 
 // ═══ Analytics helpers ════════════════════════════════════════════════════════
@@ -925,6 +951,202 @@ function LogRow({ entry, onDelete }) {
   );
 }
 
+// ═══ Sites Tab ════════════════════════════════════════════════════════════════
+function pad2(n){ return String(n).padStart(2,"0"); }
+function toDateVal(d){ return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate()); }
+function toTimeVal(d){ return pad2(d.getHours())+":"+pad2(d.getMinutes()); }
+
+function tsFromInputs(dateStr, timeStr) {
+  const [y,m,d] = dateStr.split("-").map(Number);
+  const [hh,mm] = timeStr.split(":").map(Number);
+  return new Date(y, m-1, d, hh, mm).getTime();
+}
+
+function SitesTab({ sites, onAdd, onDelete }) {
+  const now = new Date();
+  const [device, setDevice] = useState("pod");
+  const [date,   setDate  ] = useState(toDateVal(now));
+  const [time,   setTime  ] = useState(toTimeVal(now));
+  const [site,   setSite  ] = useState(SITE_OPTIONS.pod[0]);
+  const [saved,  setSaved ] = useState(false);
+
+  const pickDevice = d => { setDevice(d); setSite(SITE_OPTIONS[d][0]); };
+
+  // Most recent entry per device
+  const latest = {};
+  ["pod","sensor"].forEach(d => {
+    const list = sites.filter(s => s.device===d).sort((a,b)=>b.ts-a.ts);
+    if (list.length) latest[d] = list[0];
+  });
+
+  // Sites used in the last 21 days — used to nudge rotation
+  const recentSites = sites
+    .filter(s => s.device===device && Date.now()-s.ts < 21*86400000)
+    .map(s => s.site);
+  const lastUsed = {};
+  sites.filter(s => s.device===device).forEach(s => {
+    if (!lastUsed[s.site] || s.ts > lastUsed[s.site]) lastUsed[s.site] = s.ts;
+  });
+
+  const submit = () => {
+    const ts = tsFromInputs(date, time);
+    if (!ts || isNaN(ts)) return;
+    onAdd({ id: Date.now(), device, site, ts });
+    setSaved(true); setTimeout(()=>setSaved(false), 2200);
+  };
+
+  const daysAgo = ts => (Date.now()-ts)/86400000;
+  const fmtAgo = ts => {
+    const h = (Date.now()-ts)/3600000;
+    if (h < 1)  return "just now";
+    if (h < 24) return `${Math.floor(h)}h ago`;
+    const d = Math.floor(h/24);
+    return d===1 ? "1 day ago" : `${d} days ago`;
+  };
+
+  return (
+    <div className="slideUp">
+
+      {/* Current wear status */}
+      <div style={{ display:"flex", gap:10, marginBottom:14, marginTop:14 }}>
+        {["pod","sensor"].map(d => {
+          const dev = DEVICES[d];
+          const cur = latest[d];
+          const age = cur ? daysAgo(cur.ts) : null;
+          const left = cur ? dev.wearDays - age : null;
+          const overdue = left !== null && left <= 0;
+          const soon    = left !== null && left > 0 && left <= 0.75;
+          const col = overdue ? C.high : soon ? C.low : C.inRange;
+          return (
+            <Card key={d} style={{ flex:1, padding:14, textAlign:"center" }}>
+              <div style={{ fontSize:22 }}>{dev.icon}</div>
+              <div style={{ fontWeight:800, color:C.textDk, fontSize:13, marginTop:2 }}>{dev.label}</div>
+              {cur ? (
+                <>
+                  <div style={{ fontSize:20, fontWeight:900, color:col, marginTop:6, lineHeight:1 }}>
+                    {overdue ? "Due" : `${Math.max(0,left).toFixed(1)}d`}
+                  </div>
+                  <div style={{ fontSize:10, color:C.textLt, fontWeight:700, marginTop:3 }}>
+                    {overdue ? "change now" : "remaining"}
+                  </div>
+                  <div style={{ fontSize:10, color:C.textMd, marginTop:6, fontWeight:600 }}>{cur.site}</div>
+                  <div style={{ fontSize:10, color:C.textLt }}>{fmtAgo(cur.ts)}</div>
+                </>
+              ) : (
+                <div style={{ fontSize:11, color:C.textLt, marginTop:10, fontWeight:600 }}>No entries yet</div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* New entry */}
+      <Card style={{ marginBottom:12 }}>
+        <div style={{ fontWeight:800, color:C.textDk, fontSize:15, marginBottom:14 }}>➕ Log a Change</div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14 }}>
+          {["pod","sensor"].map(d=>(
+            <button key={d} type="button" onClick={()=>pickDevice(d)}
+              style={{ border:device===d?`2.5px solid ${C.blue}`:`2px solid ${C.border}`,
+                background:device===d?`${C.blue}11`:C.white, borderRadius:14, padding:"10px 4px",
+                cursor:"pointer", textAlign:"center", fontFamily:"inherit" }}>
+              <div style={{ fontSize:20 }}>{DEVICES[d].icon}</div>
+              <div style={{ fontSize:12, fontWeight:700, marginTop:2, color:device===d?C.blue:C.textMd }}>
+                {DEVICES[d].label}
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:10, color:C.textLt, fontWeight:800, marginBottom:5 }}>DATE</div>
+            <input type="date" value={date} onChange={e=>setDate(e.target.value)}
+              style={{ width:"100%", padding:"9px 10px", borderRadius:12, fontSize:13, fontFamily:"inherit",
+                border:`1.5px solid ${C.border}`, color:C.textDk, outline:"none", background:C.white }}/>
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:10, color:C.textLt, fontWeight:800, marginBottom:5 }}>TIME</div>
+            <input type="time" value={time} onChange={e=>setTime(e.target.value)}
+              style={{ width:"100%", padding:"9px 10px", borderRadius:12, fontSize:13, fontFamily:"inherit",
+                border:`1.5px solid ${C.border}`, color:C.textDk, outline:"none", background:C.white }}/>
+          </div>
+        </div>
+
+        <div style={{ fontSize:10, color:C.textLt, fontWeight:800, marginBottom:6 }}>LOCATION</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:8 }}>
+          {SITE_OPTIONS[device].map(s=>{
+            const used = lastUsed[s];
+            const recent = used && (Date.now()-used) < 10*86400000;
+            return (
+              <button key={s} type="button" onClick={()=>setSite(s)}
+                style={{ padding:"9px 6px", borderRadius:12, fontFamily:"inherit", textAlign:"left",
+                  border: site===s ? `2px solid ${C.blue}` : `1.5px solid ${C.border}`,
+                  background: site===s ? `${C.blue}18` : C.offWhite,
+                  color: site===s ? C.blue : C.textMd, fontWeight:700, fontSize:12, cursor:"pointer",
+                  position:"relative", lineHeight:1.3 }}>
+                {s}
+                {recent && <span style={{ display:"block", fontSize:9, color:C.low, fontWeight:700, marginTop:2 }}>
+                  used {fmtAgo(used)}
+                </span>}
+              </button>
+            );
+          })}
+        </div>
+
+        {lastUsed[site] && (Date.now()-lastUsed[site]) < 10*86400000 && (
+          <div style={{ background:C.low+"11", border:`1.5px solid ${C.low}33`, borderRadius:10,
+            padding:"7px 10px", fontSize:11, fontWeight:700, color:C.low, marginBottom:10, lineHeight:1.4 }}>
+            💡 This spot was used {fmtAgo(lastUsed[site])} — rotating further helps avoid absorption problems.
+          </div>
+        )}
+
+        <Btn onClick={submit} style={{ width:"100%", fontSize:15, padding:"13px 0" }}>
+          {saved ? "✓ Logged!" : `Log ${DEVICES[device].label} change`}
+        </Btn>
+      </Card>
+
+      {/* History */}
+      <Card style={{ marginBottom:12 }}>
+        <div style={{ fontWeight:800, color:C.textDk, fontSize:15, marginBottom:4 }}>📋 Change History</div>
+        <div style={{ color:C.textLt, fontSize:11, marginBottom:14 }}>
+          Most recent first · shared with everyone
+        </div>
+        {sites.length===0 ? (
+          <div style={{ textAlign:"center", color:C.textLt, fontSize:13, padding:"20px 0" }}>
+            Nothing logged yet
+          </div>
+        ) : sites.slice(0,40).map(s=>{
+          const dev = DEVICES[s.device] || DEVICES.pod;
+          const d = new Date(s.ts);
+          return (
+            <div key={s.id} style={{ display:"grid", gridTemplateColumns:"32px 1fr auto",
+              alignItems:"center", gap:10, padding:"9px 2px", borderBottom:`1px solid ${C.border}` }}>
+              <div style={{ fontSize:19, textAlign:"center" }}>{dev.icon}</div>
+              <div>
+                <div style={{ fontWeight:700, color:C.textDk, fontSize:13 }}>
+                  {dev.label} · <span style={{ color:C.textMd, fontWeight:600 }}>{s.site}</span>
+                </div>
+                <div style={{ fontSize:11, color:C.textLt, marginTop:1 }}>
+                  {d.toLocaleDateString("en-US",{month:"short",day:"numeric"})} at {d.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})} · {fmtAgo(s.ts)}
+                </div>
+              </div>
+              <button type="button" onClick={()=>onDelete(s.id)}
+                style={{ background:"none", border:"none", cursor:"pointer", color:C.textLt,
+                  fontSize:11, fontFamily:"inherit", padding:"2px 0" }}>remove</button>
+            </div>
+          );
+        })}
+      </Card>
+
+      <div style={{ textAlign:"center", color:C.textLt, fontSize:11, paddingBottom:20, lineHeight:1.6 }}>
+        Pods ~3 days · G7 sensors ~10 days<br/>
+        Rotating sites helps prevent lipohypertrophy and absorption issues
+      </div>
+    </div>
+  );
+}
+
 // ═══ Main App ═════════════════════════════════════════════════════════════════
 export default function App() {
   const [tab,          setTab         ] = useState("dose");
@@ -934,6 +1156,7 @@ export default function App() {
   const [bgEntered,    setBgEntered   ] = useState(false);
   const [ratios,       setRatios      ] = useState({breakfast:10,lunch:12,dinner:12,snack:15});
   const [log,          setLog         ] = useState([]);
+  const [sites,        setSites       ] = useState([]);
   const [showSettings, setShowSettings] = useState(false);
   const [confirmed,    setConfirmed   ] = useState(false);
   const [alertNumbers, setAlertNumbers] = useState(()=>localStore.get("hud-alert-numbers",["2674812133"]));
@@ -949,6 +1172,7 @@ export default function App() {
 
   useEffect(() => {
     sharedLog.get().then(setLog);
+    sharedSites.get().then(d => setSites(Array.isArray(d) ? d : []));
     setRatios(localStore.get("hud-ratios",{breakfast:10,lunch:12,dinner:12,snack:15}));
   }, []);
 
@@ -1019,6 +1243,14 @@ export default function App() {
 
   const removeEntry = id => {
     const next=log.filter(e=>e.id!==id); setLog(next); sharedLog.save(next);
+  };
+
+  const addSite = entry => {
+    const next=[entry,...sites].sort((a,b)=>b.ts-a.ts).slice(0,500);
+    setSites(next); sharedSites.save(next);
+  };
+  const removeSite = id => {
+    const next=sites.filter(s=>s.id!==id); setSites(next); sharedSites.save(next);
   };
 
   return (
@@ -1130,10 +1362,10 @@ export default function App() {
         {/* ── Tabs ── */}
         <div style={{ display:"flex",background:C.white,borderBottom:`1px solid ${C.border}`,
           position:"sticky",top:0,zIndex:10 }}>
-          {[["dose","💉 Calculate"],["log","📋 History"],["stats","📊 Trends"]].map(([id,label])=>(
+          {[["dose","💉 Dose"],["log","📋 Log"],["sites","📍 Sites"],["stats","📊 Trends"]].map(([id,label])=>(
             <button key={id} type="button" onClick={()=>setTab(id)}
               style={{ flex:1,padding:"14px 0",border:"none",background:"none",cursor:"pointer",
-                fontWeight:700,fontSize:13,fontFamily:"inherit",
+                fontWeight:700,fontSize:12,fontFamily:"inherit",
                 color:tab===id?C.blue:C.textLt,
                 borderBottom:tab===id?`3px solid ${C.blue}`:"3px solid transparent",transition:"all .18s" }}>{label}</button>
           ))}
@@ -1280,6 +1512,9 @@ export default function App() {
               )}
             </div>
           )}
+
+          {/* ══ SITES ══ */}
+          {tab==="sites"&&<SitesTab sites={sites} onAdd={addSite} onDelete={removeSite}/>}
 
           {/* ══ ANALYTICS ══ */}
           {tab==="stats"&&<AnalyticsTab bgHistory={history} ratios={ratios} rangeLow={rangeLow} rangeHigh={rangeHigh} mealWindows={mealWindows}/>}
