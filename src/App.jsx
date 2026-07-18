@@ -31,6 +31,33 @@ const MEALS = [
   { id:"snack",     label:"Snack",     icon:"🍎",  defaultRatio:15 },
 ];
 
+
+// ═══ Device icons — orange pod, green sensor ═════════════════════════════════
+const POD_ORANGE  = "#F79E1B";
+const SENSOR_GREEN = "#3BA55D";
+
+function PodIcon({ size=20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" style={{ display:"block" }}>
+      <path d="M4 9.5 C4 5.4 7.6 3 12 3 C16.4 3 20 5.4 20 9.5 L20 15 C20 18.9 16.4 21 12 21 C7.6 21 4 18.9 4 15 Z"
+        fill={POD_ORANGE}/>
+    </svg>
+  );
+}
+
+function SensorIcon({ size=20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" style={{ display:"block" }}>
+      <circle cx="12" cy="12" r="9.5" fill={SENSOR_GREEN}/>
+      <circle cx="12" cy="12" r="5" fill="none" stroke="#FFFFFF" strokeWidth="2.4"/>
+    </svg>
+  );
+}
+
+function DevIcon({ device, size=20 }) {
+  return device === "sensor" ? <SensorIcon size={size}/> : <PodIcon size={size}/>;
+}
+
 // ═══ Device site tracking ════════════════════════════════════════════════════
 // Pods last ~3 days, G7 sensors ~10 days.
 const DEVICES = {
@@ -986,7 +1013,7 @@ function SiteTrends({ sites, readings, fromTs, toTs }) {
       {/* Summary tiles */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8, marginBottom:16 }}>
         <div style={{ background:C.white, borderRadius:12, padding:"10px 12px" }}>
-          <div style={{ fontSize:11, fontWeight:700, color:C.textDk }}>💊 Pod changes</div>
+          <div style={{ fontSize:11, fontWeight:700, color:C.textDk, display:"flex", alignItems:"center", gap:5 }}><PodIcon size={13}/>Pod changes</div>
           <div style={{ fontSize:22, fontWeight:800, color:C.textDk, marginTop:2 }}>{pods.length}</div>
           <div style={{ fontSize:10, color:C.textLt, fontWeight:600 }}>
             {expectedPods>0 && pods.length<expectedPods*0.7
@@ -995,7 +1022,7 @@ function SiteTrends({ sites, readings, fromTs, toTs }) {
           </div>
         </div>
         <div style={{ background:C.white, borderRadius:12, padding:"10px 12px" }}>
-          <div style={{ fontSize:11, fontWeight:700, color:C.textDk }}>📡 Sensor changes</div>
+          <div style={{ fontSize:11, fontWeight:700, color:C.textDk, display:"flex", alignItems:"center", gap:5 }}><SensorIcon size={13}/>Sensor changes</div>
           <div style={{ fontSize:22, fontWeight:800, color:C.textDk, marginTop:2 }}>{sensors.length}</div>
           <div style={{ fontSize:10, color:C.textLt, fontWeight:600 }}>
             {senWear!==null ? `avg wear ${senWear.toFixed(1)}d` : "log more to see avg wear"}
@@ -1005,16 +1032,16 @@ function SiteTrends({ sites, readings, fromTs, toTs }) {
 
       {/* Usage bars */}
       {podUse.length>0 && (<>
-        <div style={{ fontSize:12, fontWeight:800, color:C.textDk, marginBottom:8 }}>💊 Pod sites used</div>
+        <div style={{ fontSize:12, fontWeight:800, color:C.textDk, marginBottom:8, display:"flex", alignItems:"center", gap:6 }}><PodIcon size={14}/>Pod sites used</div>
         {podUse.map(([site,n])=>(
-          <HBar key={site} label={site} count={n} max={podMax} color={C.ravens}
+          <HBar key={site} label={site} count={n} max={podMax} color={POD_ORANGE}
             note={fmtAgoDays(lastUsed("pod")[site])}/>
         ))}
       </>)}
       {senUse.length>0 && (<>
-        <div style={{ fontSize:12, fontWeight:800, color:C.textDk, margin:"14px 0 8px" }}>📡 Sensor sites used</div>
+        <div style={{ fontSize:12, fontWeight:800, color:C.textDk, margin:"14px 0 8px", display:"flex", alignItems:"center", gap:6 }}><SensorIcon size={14}/>Sensor sites used</div>
         {senUse.map(([site,n])=>(
-          <HBar key={site} label={site} count={n} max={senMax} color={C.teal}
+          <HBar key={site} label={site} count={n} max={senMax} color={SENSOR_GREEN}
             note={fmtAgoDays(lastUsed("sensor")[site])}/>
         ))}
       </>)}
@@ -1029,7 +1056,7 @@ function SiteTrends({ sites, readings, fromTs, toTs }) {
 
       {/* BG by pod age */}
       <div style={{ marginTop:16 }}>
-        <div style={{ fontSize:12, fontWeight:800, color:C.textDk, marginBottom:8 }}>💊 BG by pod age</div>
+        <div style={{ fontSize:12, fontWeight:800, color:C.textDk, marginBottom:8, display:"flex", alignItems:"center", gap:6 }}><PodIcon size={14}/>BG by pod age</div>
         {podAgeStats ? (
           <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
             {podAgeStats.map(b=>(
@@ -1874,7 +1901,7 @@ function SitesTab({ sites, onAdd, onDelete }) {
           const col = overdue ? C.high : soon ? C.low : C.inRange;
           return (
             <Card key={d} style={{ flex:1, padding:14, textAlign:"center" }}>
-              <div style={{ fontSize:22 }}>{dev.icon}</div>
+              <div style={{ display:"flex", justifyContent:"center" }}><DevIcon device={d} size={24}/></div>
               <div style={{ fontWeight:800, color:C.textDk, fontSize:13, marginTop:2 }}>{dev.label}</div>
               {cur ? (
                 <>
@@ -1905,7 +1932,7 @@ function SitesTab({ sites, onAdd, onDelete }) {
               style={{ border:device===d?`2px solid ${C.textDk}`:"2px solid transparent",
                 background:C.tile, borderRadius:12, padding:"10px 4px",
                 cursor:"pointer", textAlign:"center", fontFamily:"inherit" }}>
-              <div style={{ fontSize:20 }}>{DEVICES[d].icon}</div>
+              <div style={{ display:"flex", justifyContent:"center" }}><DevIcon device={d} size={22}/></div>
               <div style={{ fontSize:12, fontWeight:700, marginTop:2, color:device===d?C.textDk:C.textMd }}>
                 {DEVICES[d].label}
               </div>
@@ -1977,7 +2004,7 @@ function SitesTab({ sites, onAdd, onDelete }) {
           return (
             <div key={s.id} style={{ display:"grid", gridTemplateColumns:"32px 1fr auto",
               alignItems:"center", gap:10, padding:"9px 2px", borderBottom:`1px solid ${C.border}` }}>
-              <div style={{ fontSize:19, textAlign:"center" }}>{dev.icon}</div>
+              <div style={{ display:"flex", justifyContent:"center" }}><DevIcon device={s.device} size={20}/></div>
               <div>
                 <div style={{ fontWeight:700, color:C.textDk, fontSize:13 }}>
                   {dev.label} · <span style={{ color:C.textMd, fontWeight:600 }}>{s.site}</span>
