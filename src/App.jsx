@@ -4,24 +4,25 @@ import { useState, useEffect, useRef } from "react";
 const C = {
   navy:    "#FFFFFF",
   navyDk:  "#FFFFFF",
-  blue:    "#0A84FF",
-  teal:    "#8E8E93",
+  blue:    "#241773",
+  teal:    "#8A8A8E",
   white:   "#FFFFFF",
-  offWhite:"#F7F7F8",
-  border:  "#E5E5EA",
-  textDk:  "#000000",
+  offWhite:"#FFFFFF",
+  tile:    "#F2F2F4",
+  border:  "#E8E8EC",
+  textDk:  "#1C1C1E",
   textMd:  "#6E6E73",
-  textLt:  "#A1A1A6",
+  textLt:  "#9A9AA0",
   low:     "#FF9500",
-  high:    "#FF3B30",
-  inRange: "#34C759",
-  band:    "#F0F0F2",
+  high:    "#E8434C",
+  inRange: "#31B057",
+  band:    "#EFEFF1",
   ravens:  "#241773",
   gold:    "#9E7C0C",
 };
 
 // ═══ Config ═══════════════════════════════════════════════════════════════════
-const FONT = '-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif';
+const FONT = "'Nunito Sans',-apple-system,BlinkMacSystemFont,sans-serif";
 
 const MEALS = [
   { id:"breakfast", label:"Breakfast", icon:"☀️",  defaultRatio:10 },
@@ -201,8 +202,8 @@ function computeStats(readings, mealWindows) {
 
 // ═══ Atoms ═══════════════════════════════════════════════════════════════════
 function Card({ children, style={} }) {
-  return <div style={{ background:C.white, borderRadius:12, border:`1px solid ${C.border}`,
-    padding:18, ...style }}>{children}</div>;
+  return <div style={{ background:C.tile, borderRadius:16, border:"none",
+    padding:20, ...style }}>{children}</div>;
 }
 
 function Badge({ color, children }) {
@@ -213,17 +214,17 @@ function Badge({ color, children }) {
 function Btn({ onClick, children, variant="primary", style={}, disabled=false }) {
   const v = {
     primary:   { background:C.textDk, color:"#fff", border:"none" },
-    secondary: { background:C.white, color:C.textDk, border:`1px solid ${C.border}` },
-    danger:    { background:C.white,  color:C.high, border:`1px solid ${C.high}55` },
+    secondary: { background:C.tile, color:C.textDk, border:"none" },
+    danger:    { background:C.tile,  color:C.high, border:"none" },
   }[variant];
-  return <button type="button" onClick={onClick} disabled={disabled} style={{ borderRadius:10, fontWeight:600,
-    cursor:disabled?"not-allowed":"pointer", fontSize:15, padding:"12px 28px",
+  return <button type="button" onClick={onClick} disabled={disabled} style={{ borderRadius:14, fontWeight:600,
+    cursor:disabled?"not-allowed":"pointer", fontSize:16, padding:"14px 28px",
     fontFamily:"inherit", opacity:disabled?0.5:1, ...v, ...style }}>{children}</button>;
 }
 
 function NumPad({ value, onChange, step=1, min=0, max=500, unit="" }) {
-  const bs = { width:40, height:40, borderRadius:"50%", border:`1px solid ${C.border}`,
-    background:C.white, fontSize:20, cursor:"pointer", color:C.textDk,
+  const bs = { width:40, height:40, borderRadius:"50%", border:"none",
+    background:C.tile, fontSize:20, cursor:"pointer", color:C.textDk,
     display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700 };
   return (
     <div style={{ display:"flex", alignItems:"center", gap:12, justifyContent:"center" }}>
@@ -271,8 +272,7 @@ function BGTrendChart({ history }) {
   const ty=tooltip?Math.max(tooltip.y-28,PAD.top):0;
 
   return (
-    <div style={{ background:C.white, border:`1px solid ${C.border}`,
-      borderRadius:12, padding:"10px 12px 6px" }} onClick={()=>setTooltip(null)}>
+    <div style={{ background:C.white, borderRadius:12, padding:"4px 0 0" }} onClick={()=>setTooltip(null)}>
       <svg viewBox={`0 0 ${W} ${H}`}
         style={{ width:"100%", height:"auto", display:"block", overflow:"visible", touchAction:"none" }}
         onTouchStart={handleTouch} onTouchMove={handleTouch} onClick={handleTouch}>
@@ -299,14 +299,14 @@ function BGTrendChart({ history }) {
         {tooltip&&(
           <g>
             <rect x={tx-28} y={ty-16} width="56" height="22" rx="8" fill={dc(tooltip.v)} opacity="0.95"/>
-            <text x={tx} y={ty-1} fontSize="12" fontWeight="900" fill="#fff" textAnchor="middle" fontFamily="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif">{tooltip.v}</text>
-            <text x={tx} y={ty+18} fontSize="8" fontWeight="700" fill="rgba(255,255,255,0.75)" textAnchor="middle" fontFamily="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif">{tooltip.time}</text>
+            <text x={tx} y={ty-1} fontSize="12" fontWeight="900" fill="#fff" textAnchor="middle" fontFamily="Nunito Sans,sans-serif">{tooltip.v}</text>
+            <text x={tx} y={ty+18} fontSize="8" fontWeight="700" fill="rgba(255,255,255,0.75)" textAnchor="middle" fontFamily="Nunito Sans,sans-serif">{tooltip.time}</text>
             <line x1={tx} y1={ty+6} x2={tooltip.x.toFixed(1)} y2={tooltip.y-7} stroke={dc(tooltip.v)} strokeWidth="1.5" opacity="0.6"/>
           </g>
         )}
         {tLbls.map((t,i)=>(
           <text key={i} x={t.x.toFixed(1)} y={H-3} fontSize="9" fill={C.textLt}
-            textAnchor={i===0?"start":i===tLbls.length-1?"end":"middle"} fontWeight="600" fontFamily="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif">
+            textAnchor={i===0?"start":i===tLbls.length-1?"end":"middle"} fontWeight="600" fontFamily="Nunito Sans,sans-serif">
             {t.label}
           </text>
         ))}
@@ -402,8 +402,8 @@ function HighLowTrend({ readings, rangeLow, rangeHigh, mealWindows }) {
         {HL_FILTERS.map(f=>(
           <button key={f.key} type="button" onClick={()=>{ setFilter(f.key); setTooltip(null); }}
             style={{ padding:"7px 0", borderRadius:20, fontFamily:"inherit", textAlign:"center", fontWeight:800, fontSize:12,
-              border: filter===f.key ? `1px solid ${C.textDk}` : `1px solid ${C.border}`,
-              background: filter===f.key ? C.textDk : C.white,
+              border: "none",
+              background: filter===f.key ? C.textDk : C.tile,
               color: filter===f.key ? "#fff" : C.textMd, cursor:"pointer" }}>
             {f.label}
           </button>
@@ -440,10 +440,10 @@ function HighLowTrend({ readings, rangeLow, rangeHigh, mealWindows }) {
             </g>
           );
         })}
-        <text x={PAD.left+2} y={PAD.top-5} fontSize="9" fill={C.high} fontWeight="800" fontFamily="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif">▲ highs</text>
-        <text x={PAD.left+2} y={H-PAD.bottom+13} fontSize="9" fill={C.low} fontWeight="800" fontFamily="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif">▼ lows</text>
+        <text x={PAD.left+2} y={PAD.top-5} fontSize="9" fill={C.high} fontWeight="800" fontFamily="Nunito Sans,sans-serif">▲ highs</text>
+        <text x={PAD.left+2} y={H-PAD.bottom+13} fontSize="9" fill={C.low} fontWeight="800" fontFamily="Nunito Sans,sans-serif">▼ lows</text>
         {labelIdx.map((i,k)=>(
-          <text key={k} x={xOf(i)} y={H-4} fontSize="9" fill={C.textLt} fontWeight="600" fontFamily="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif"
+          <text key={k} x={xOf(i)} y={H-4} fontSize="9" fill={C.textLt} fontWeight="600" fontFamily="Nunito Sans,sans-serif"
             textAnchor={k===0?"start":k===labelIdx.length-1?"end":"middle"}>
             {fmtDay(days[i].ts)}
           </text>
@@ -573,7 +573,7 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
       <div style={{ fontSize:13, marginTop:8, lineHeight:1.5 }}>
         Keep the app open — it collects a reading every 5 minutes.<br/>Check back after a few days.
       </div>
-      <div style={{ marginTop:16, background:C.offWhite, borderRadius:14, padding:"12px 16px", fontSize:13, color:C.textMd, fontWeight:700 }}>
+      <div style={{ marginTop:16, background:C.tile, borderRadius:14, padding:"12px 16px", fontSize:13, color:C.textMd, fontWeight:700 }}>
         {all.length} readings stored so far
       </div>
     </div>
@@ -596,8 +596,8 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
               setCustomTo(toDateInputVal(Date.now()));
             }}
               style={{ padding:"8px 0", borderRadius:20, fontFamily:"inherit", textAlign:"center", fontWeight:800, fontSize:12,
-                border: (!useCustom && period===p.days) ? `1px solid ${C.textDk}` : `1px solid ${C.border}`,
-                background: (!useCustom && period===p.days) ? C.textDk : C.white,
+                border: "none",
+                background: (!useCustom && period===p.days) ? C.textDk : C.tile,
                 color: (!useCustom && period===p.days) ? "#fff" : C.textMd, cursor:"pointer" }}>
               {p.label}
             </button>
@@ -608,14 +608,14 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
           <input type="date" value={customFrom}
             onChange={e=>{ setCustomFrom(e.target.value); setUseCustom(true); }}
             style={{ flex:1, padding:"8px 10px", borderRadius:12, fontSize:12, fontFamily:"inherit",
-              border: useCustom ? `2px solid ${C.blue}` : `1.5px solid ${C.border}`,
-              color:C.textDk, outline:"none", background: useCustom ? `${C.blue}08` : C.white }}/>
+              border: useCustom ? `2px solid ${C.ravens}` : "2px solid transparent",
+              color:C.textDk, outline:"none", background:C.tile }}/>
           <span style={{ color:C.textLt, fontSize:12, fontWeight:600 }}>to</span>
           <input type="date" value={customTo}
             onChange={e=>{ setCustomTo(e.target.value); setUseCustom(true); }}
             style={{ flex:1, padding:"8px 10px", borderRadius:12, fontSize:12, fontFamily:"inherit",
-              border: useCustom ? `2px solid ${C.blue}` : `1.5px solid ${C.border}`,
-              color:C.textDk, outline:"none", background: useCustom ? `${C.blue}08` : C.white }}/>
+              border: useCustom ? `2px solid ${C.ravens}` : "2px solid transparent",
+              color:C.textDk, outline:"none", background:C.tile }}/>
         </div>
         <div style={{ fontSize:11, color:C.textLt, marginTop:6, textAlign:"center" }}>
           {all.length === 0
@@ -693,7 +693,7 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
               </div>
 
               {/* BG position bar */}
-              <div style={{ position:"relative", height:8, background:C.offWhite, borderRadius:4, marginBottom:8 }}>
+              <div style={{ position:"relative", height:8, background:C.tile, borderRadius:4, marginBottom:8 }}>
                 {/* in-range zone */}
                 <div style={{ position:"absolute", left:`${(rangeLow/320)*100}%`,
                   width:`${((rangeHigh-rangeLow)/320)*100}%`,
@@ -707,7 +707,7 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
               {/* Current ratio + recommendation */}
               {w.key !== "overnight" && (
                 <div style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
-                  <div style={{ background:C.offWhite, borderRadius:10, padding:"6px 12px",
+                  <div style={{ background:C.white, borderRadius:10, padding:"6px 12px",
                     fontSize:12, fontWeight:800, color:C.textMd, flexShrink:0 }}>
                     Current: 1:{currentRatio}g
                   </div>
@@ -753,8 +753,8 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
 function QuoteBanner() {
   const q = getDailyQuote();
   return (
-    <div style={{ background:C.white, border:`1px solid ${C.border}`, borderLeft:`3px solid ${C.ravens}`,
-      borderRadius:12, padding:"16px 18px", marginBottom:14, position:"relative", overflow:"hidden" }}>
+    <div style={{ background:C.tile, borderLeft:`3px solid ${C.ravens}`,
+      borderRadius:14, padding:"16px 18px", marginBottom:14, position:"relative", overflow:"hidden" }}>
       <div style={{ fontSize:11, fontWeight:700, color:C.ravens, letterSpacing:0.4, marginBottom:6 }}>
         🏈 MARK ANDREWS MODE
       </div>
@@ -897,7 +897,7 @@ function PushToggle() {
 
   if (status === "loading") return null;
 
-  const box = { background:C.offWhite, border:`1.5px solid ${C.border}`, borderRadius:12,
+  const box = { background:C.white, border:"none", borderRadius:12,
     padding:"10px 14px", fontSize:12, color:C.textMd, lineHeight:1.5, fontWeight:600 };
 
   if (status === "unsupported")
@@ -975,7 +975,7 @@ function SettingsModal({ ratios, setRatios, rangeLow, setRangeLow, rangeHigh, se
           </div>
         ))}
 
-        <div style={{ background:C.offWhite, borderRadius:12, padding:"10px 14px", color:C.textMd, fontSize:12, marginBottom:24 }}>
+        <div style={{ background:C.tile, borderRadius:12, padding:"10px 14px", color:C.textMd, fontSize:12, marginBottom:24 }}>
           📐 Correction: 1u drops BG by {CORRECTION_FACTOR} mg/dL · Target: {TARGET_BG} mg/dL
         </div>
 
@@ -1176,8 +1176,8 @@ function SitesTab({ sites, onAdd, onDelete }) {
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14 }}>
           {["pod","sensor"].map(d=>(
             <button key={d} type="button" onClick={()=>pickDevice(d)}
-              style={{ border:device===d?`1px solid ${C.textDk}`:`1px solid ${C.border}`,
-                background:device===d?C.offWhite:C.white, borderRadius:10, padding:"10px 4px",
+              style={{ border:device===d?`2px solid ${C.textDk}`:"2px solid transparent",
+                background:C.tile, borderRadius:12, padding:"10px 4px",
                 cursor:"pointer", textAlign:"center", fontFamily:"inherit" }}>
               <div style={{ fontSize:20 }}>{DEVICES[d].icon}</div>
               <div style={{ fontSize:12, fontWeight:700, marginTop:2, color:device===d?C.textDk:C.textMd }}>
@@ -1192,13 +1192,13 @@ function SitesTab({ sites, onAdd, onDelete }) {
             <div style={{ fontSize:10, color:C.textLt, fontWeight:800, marginBottom:5 }}>DATE</div>
             <input type="date" value={date} onChange={e=>setDate(e.target.value)}
               style={{ width:"100%", padding:"9px 10px", borderRadius:12, fontSize:13, fontFamily:"inherit",
-                border:`1.5px solid ${C.border}`, color:C.textDk, outline:"none", background:C.white }}/>
+                border:"none", color:C.textDk, outline:"none", background:C.tile }}/>
           </div>
           <div style={{ flex:1 }}>
             <div style={{ fontSize:10, color:C.textLt, fontWeight:800, marginBottom:5 }}>TIME</div>
             <input type="time" value={time} onChange={e=>setTime(e.target.value)}
               style={{ width:"100%", padding:"9px 10px", borderRadius:12, fontSize:13, fontFamily:"inherit",
-                border:`1.5px solid ${C.border}`, color:C.textDk, outline:"none", background:C.white }}/>
+                border:"none", color:C.textDk, outline:"none", background:C.tile }}/>
           </div>
         </div>
 
@@ -1210,8 +1210,8 @@ function SitesTab({ sites, onAdd, onDelete }) {
             return (
               <button key={s} type="button" onClick={()=>setSite(s)}
                 style={{ padding:"9px 6px", borderRadius:12, fontFamily:"inherit", textAlign:"left",
-                  border: site===s ? `1px solid ${C.textDk}` : `1px solid ${C.border}`,
-                  background: site===s ? C.offWhite : C.white,
+                  border: site===s ? `2px solid ${C.textDk}` : "2px solid transparent",
+                  background: C.tile,
                   color: site===s ? C.textDk : C.textMd, fontWeight:700, fontSize:12, cursor:"pointer",
                   position:"relative", lineHeight:1.3 }}>
                 {s}
@@ -1385,8 +1385,9 @@ export default function App() {
   return (
     <>
       <style>{`
-                *,*::before,*::after{box-sizing:border-box;margin:0;}
-        body{background:${C.offWhite};font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;}
+                @import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700;800&display=swap');
+        *,*::before,*::after{box-sizing:border-box;margin:0;}
+        body{background:#FFFFFF;font-family:'Nunito Sans',-apple-system,BlinkMacSystemFont,sans-serif;}
         ::-webkit-scrollbar{display:none;}
         @keyframes pop{0%{transform:scale(.88);opacity:0}60%{transform:scale(1.05)}100%{transform:scale(1);opacity:1}}
         @keyframes slideUp{from{transform:translateY(40px);opacity:0}to{transform:translateY(0);opacity:1}}
@@ -1399,17 +1400,15 @@ export default function App() {
         maxWidth:480, margin:"0 auto", paddingBottom:20 }}>
 
         {/* ── Header ── */}
-        <div style={{ background:C.white, borderBottom:`1px solid ${C.border}`,
-          padding:"20px 20px 14px", position:"relative" }}>
+        <div style={{ background:C.white,
+          padding:"14px 20px 6px", position:"relative" }}>
 
 
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
             <div style={{ flex:1 }}>
-              <div style={{ color:C.textLt, fontSize:11, fontWeight:600, letterSpacing:0.3 }}>
-                Hudson's data
-              </div>
+
               <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:4, flexWrap:"wrap" }}>
-                {tab !== "stats" && <div style={{ color:C.textDk, fontSize:17, fontWeight:600, lineHeight:1.1 }}>Hey Hudson 🏈</div>}
+                
                 {tab !== "stats" && dex?.value ? (() => {
                   const bgColor = dex.value<TARGET_LOW?C.high:dex.value>TARGET_HIGH?C.low:C.textDk;
                   const tr=dex.trend;
@@ -1420,18 +1419,16 @@ export default function App() {
                   const low90s =dex.value<90;
                   const allWell=isFlat&&dex.value>=80&&dex.value<=125;
                   let alert=null;
-                  if      (dex.value<80)              alert={key:"under80",    msg:"Juice or Skittles! 🧃🍬",        color:"#E84040",pulse:true};
-                  else if (low90s&&isDblDn)            alert={key:"dblDown",    msg:"Drink juice NOW! 🧃",             color:"#E84040",pulse:true};
-                  else if (low90s&&(isSglDn||isAngDn)) alert={key:"dropping",   msg:"Consider Skittles 🍬",            color:"#F5A623",pulse:false};
-                  else if (allWell)                    alert={key:"allWell",    msg:"All is well ✅",                  color:"#4ADE80",pulse:false};
+                  if      (dex.value<80)              alert={key:"under80",    msg:"Juice or Skittles! 🧃🍬",        color:C.high,pulse:true};
+                  else if (low90s&&isDblDn)            alert={key:"dblDown",    msg:"Drink juice NOW! 🧃",             color:C.high,pulse:true};
+                  else if (low90s&&(isSglDn||isAngDn)) alert={key:"dropping",   msg:"Consider Skittles 🍬",            color:C.low,pulse:false};
+                  else if (allWell)                    alert={key:"allWell",    msg:"All is well ✅",                  color:C.inRange,pulse:false};
                   return (
                     <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-                      <div style={{ display:"flex",alignItems:"baseline",gap:8 }}>
-                        <span style={{ color:bgColor,fontWeight:700,fontSize:40,letterSpacing:-1.5,lineHeight:1 }}>{dex.value}</span>
-                        <span style={{ color:bgColor,fontWeight:400,fontSize:26,lineHeight:1 }}>{trendArrow(dex.trend)}</span>
-                        <span style={{ color:C.textLt,fontSize:11,fontWeight:500 }}>
-                          mg/dL{dex.ageMinutes>0?` · ${dex.ageMinutes} min ago`:""}
-                        </span>
+                      <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                        <span style={{ color:bgColor,fontWeight:700,fontSize:56,letterSpacing:-2.5,lineHeight:1 }}>{dex.value}</span>
+                        <span style={{ color:bgColor,fontWeight:500,fontSize:32,lineHeight:1 }}>{trendArrow(dex.trend)}</span>
+                        <span style={{ color:C.textMd,fontSize:15,fontWeight:500,lineHeight:1.2 }}>mg/dL</span>
                       </div>
                       {alert&&(
                         <div style={{ fontSize:12,fontWeight:600,color:alert.color,background:alert.color+"14",
@@ -1447,14 +1444,14 @@ export default function App() {
                 ) : null}
               </div>
               {tab !== "stats" && (
-                <div style={{ color:C.textLt, fontSize:12, marginTop:3 }}>
-                  {new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}
+                <div style={{ color:C.textMd, fontSize:14, marginTop:4 }}>
+                  {dex?.ageMinutes>0 ? `${dex.ageMinutes} min ago | ` : ""}Hudson's data 🏈
                 </div>
               )}
             </div>
             <button type="button" onClick={()=>setShowSettings(true)}
-              style={{ background:C.white,border:`1px solid ${C.border}`,
-                borderRadius:10,width:38,height:38,cursor:"pointer",fontSize:16,
+              style={{ background:C.tile,border:"none",
+                borderRadius:"50%",width:40,height:40,cursor:"pointer",fontSize:17,
                 display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,padding:0,marginLeft:12 }}>⚙️</button>
           </div>
 
@@ -1475,10 +1472,10 @@ export default function App() {
               { label:"Total carbs",   value:todayE.length?todayE.reduce((s,e)=>s+e.carbs,0)+"g":"—" },
               { label:"Total insulin", value:todayE.length?todayE.reduce((s,e)=>s+e.dose,0)+"u":"—" },
             ].map(s=>(
-              <div key={s.label} style={{ flex:1,background:C.white,border:`1px solid ${C.border}`,
-                borderRadius:10,padding:"9px 10px" }}>
-                <div style={{ color:C.textLt,fontSize:10,fontWeight:500 }}>{s.label}</div>
-                <div style={{ color:C.textDk,fontWeight:700,fontSize:18,marginTop:2 }}>{s.value}</div>
+              <div key={s.label} style={{ flex:1,background:C.tile,
+                borderRadius:14,padding:"12px 12px" }}>
+                <div style={{ color:C.textMd,fontSize:11,fontWeight:600 }}>{s.label}</div>
+                <div style={{ color:C.textDk,fontWeight:800,fontSize:22,marginTop:2 }}>{s.value}</div>
               </div>
             ))}
           </div>}
@@ -1490,9 +1487,9 @@ export default function App() {
           {[["dose","💉 Dose"],["log","📋 Log"],["sites","📍 Sites"],["stats","📊 Trends"]].map(([id,label])=>(
             <button key={id} type="button" onClick={()=>setTab(id)}
               style={{ flex:1,padding:"14px 0",border:"none",background:"none",cursor:"pointer",
-                fontWeight:700,fontSize:12,fontFamily:"inherit",
+                fontWeight:800,fontSize:13,fontFamily:"inherit",
                 color:tab===id?C.textDk:C.textLt,
-                borderBottom:tab===id?`2px solid ${C.textDk}`:"2px solid transparent",transition:"all .15s" }}>{label}</button>
+                borderBottom:tab===id?`3px solid ${C.ravens}`:"3px solid transparent",transition:"all .15s" }}>{label}</button>
           ))}
         </div>
 
@@ -1505,8 +1502,8 @@ export default function App() {
               <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14 }}>
                 {MEALS.map(m=>(
                   <button key={m.id} type="button" onClick={()=>setMealId(m.id)}
-                    style={{ border:mealId===m.id?`1px solid ${C.textDk}`:`1px solid ${C.border}`,
-                      background:mealId===m.id?C.offWhite:C.white,
+                    style={{ border:mealId===m.id?`2px solid ${C.textDk}`:"2px solid transparent",
+                      background:C.tile,
                       borderRadius:14,padding:"10px 4px",cursor:"pointer",textAlign:"center",transition:"all .18s",fontFamily:"inherit" }}>
                     <div style={{ fontSize:22 }}>{m.icon}</div>
                     <div style={{ fontSize:11,fontWeight:700,marginTop:2,color:mealId===m.id?C.textDk:C.textMd }}>{m.label}</div>
@@ -1521,8 +1518,8 @@ export default function App() {
                   {[15,30,45,60,75,90].map(v=>(
                     <button key={v} type="button" onClick={()=>setCarbs(v)}
                       style={{ padding:"6px 0",borderRadius:20,fontFamily:"inherit",textAlign:"center",
-                        border:carbs===v?`1px solid ${C.textDk}`:`1px solid ${C.border}`,
-                        background:carbs===v?C.textDk:C.white,
+                        border:"none",
+                        background:carbs===v?C.textDk:C.tile,
                         color:carbs===v?"#fff":C.textMd,fontWeight:700,fontSize:13,cursor:"pointer" }}>{v}g</button>
                   ))}
                 </div>
@@ -1550,7 +1547,7 @@ export default function App() {
                     {dex?.value&&(
                       <div style={{ textAlign:"center",marginTop:10 }}>
                         <button type="button" onClick={()=>setBg(dex.value)}
-                          style={{ background:"none",border:`1.5px solid ${C.border}`,borderRadius:20,
+                          style={{ background:C.white,border:"none",borderRadius:20,
                             padding:"5px 12px",fontSize:12,fontWeight:500,color:C.textDk,cursor:"pointer",fontFamily:"inherit" }}>
                           📡 Pull from Dexcom ({dex.value} {trendArrow(dex.trend)})
                         </button>
@@ -1560,8 +1557,8 @@ export default function App() {
                       {[80,100,120,150,180,220,280].map(v=>(
                         <button key={v} type="button" onClick={()=>setBg(v)}
                           style={{ padding:"5px 10px",borderRadius:20,fontFamily:"inherit",
-                            border:bg===v?`1px solid ${C.textDk}`:`1px solid ${C.border}`,
-                            background:bg===v?C.textDk:C.white,
+                            border:"none",
+                            background:bg===v?C.textDk:C.tile,
                             color:bg===v?"#fff":C.textMd,fontWeight:700,fontSize:12,cursor:"pointer" }}>{v}</button>
                       ))}
                     </div>
@@ -1584,7 +1581,7 @@ export default function App() {
                     { label:"Correction",          val:dose.correction+"u" },
                     { label:`1:${ratios[mealId]}g`, val:carbs+"g" },
                   ].map(b=>(
-                    <div key={b.label} style={{ background:C.offWhite,border:`1px solid ${C.border}`,
+                    <div key={b.label} style={{ background:C.white,
                       borderRadius:10,padding:"8px 10px",flex:1,textAlign:"center" }}>
                       <div style={{ color:C.textLt,fontSize:10,fontWeight:500 }}>{b.label}</div>
                       <div style={{ color:C.textDk,fontSize:16,fontWeight:600 }}>{b.val}</div>
