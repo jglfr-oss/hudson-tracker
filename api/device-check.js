@@ -56,7 +56,7 @@ const ICON      = { pod: "🟠", sensor: "🟢" };
 async function pushAll(title, body, tag) {
   const subs = (await kv.get(SUBS_KEY)) ?? [];
   if (subs.length === 0) return { sent: 0 };
-  const payload = JSON.stringify({ title, body, url: "/", tag });
+  const payload = JSON.stringify({ title, body, url: "/?open=sites", tag });
   const alive = [];
   let sent = 0, pruned = 0;
   await Promise.all(subs.map(async (sub) => {
