@@ -202,7 +202,7 @@ function computeStats(readings, mealWindows) {
 
 // Insight metrics. Longer-horizon tiles follow the selected period; the
 // "right now" tiles (3h / 24h) always reflect the most recent data.
-function computeInsights(periodReadings, allReadings) {
+function computeInsights(periodReadings, allReadings, mealWindows) {
   const P = periodReadings || [];
   const A = allReadings || [];
   if (P.length === 0 && A.length === 0) return null;
@@ -244,7 +244,28 @@ function computeInsights(periodReadings, allReadings) {
   const t24 = tir(h24);
   const tP  = tir(P);
 
+  // Overnight = hours outside the configured meal windows (same rule as Trends)
+  const overnight = P.filter(r => mealWindowFor(new Date(r.ts).getHours(), mealWindows) === "overnight");
+  const onHighs = overnight.filter(r => r.value > TARGET_HIGH).length;
+  const onLows  = overnight.filter(r => r.value < TARGET_LOW).length;
+
+  // Trend: second half of the window vs the first half (equal spans)
+  let onHighTrend = null, onLowTrend = null, onSplit = null;
+  if (P.length > 0) {
+    const mid = (P[0].ts + P[P.length-1].ts) / 2;
+    const half = list => ({
+      h1: list.filter(r => r.ts <  mid).length,
+      h2: list.filter(r => r.ts >= mid).length,
+    });
+    const hh = half(overnight.filter(r => r.value > TARGET_HIGH));
+    const ll = half(overnight.filter(r => r.value < TARGET_LOW));
+    const dir = ({h1,h2}) => (h1===0 && h2===0) ? "flat" : h2 > h1*1.15 ? "up" : h2 < h1*0.85 ? "down" : "flat";
+    onHighTrend = dir(hh); onLowTrend = dir(ll);
+    onSplit = { high: hh, low: ll };
+  }
+
   return {
+    onHighs, onLows, onHighTrend, onLowTrend, onSplit,
     inRP: tP.inR, aboveP: tP.above, belowP: tP.below,
     // period-driven
     bedtimeP:  avg(inHours(P, 21, 23)),
@@ -1077,7 +1098,7 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
       </div>
 
 
-      {view==="insights" && <InsightsGrid periodReadings={all} allReadings={merged} periodLabel={periodLabel}/>}
+      {view==="insights" && <InsightsGrid periodReadings={all} allReadings={merged} periodLabel={periodLabel} mealWindows={mealWindows}/>}
 
       {view==="trends" && (<>
       {/* Header row */}
@@ -1230,8 +1251,8 @@ function Big({ v, unit }) {
   );
 }
 
-function InsightsGrid({ periodReadings, allReadings, periodLabel }) {
-  const ins = computeInsights(periodReadings, allReadings);
+function InsightsGrid({ periodReadings, allReadings, periodLabel, mealWindows }) {
+  const ins = computeInsights(periodReadings, allReadings, mealWindows);
   if (!ins) return null;
   const P = periodLabel || "period";
   return (
@@ -1276,6 +1297,34 @@ function InsightsGrid({ periodReadings, allReadings, periodLabel }) {
         </InsightTile>
 
         <InsightTile label="🦄 Unicorns" sub={P}><Big v={ins.unicornsP} unit="perfect 100s"/></InsightTile>
+        <InsightTile label="🌑 Overnight Highs" sub={P}>
+          <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
+            <span style={{ fontSize:24, fontWeight:800, color:C.high, lineHeight:1 }}>{ins.onHighs}</span>
+            {ins.onHighTrend && ins.onHighTrend!=="flat" && (
+              <span style={{ fontSize:16, fontWeight:800,
+                color: ins.onHighTrend==="up" ? C.high : C.inRange }}>
+                {ins.onHighTrend==="up" ? "↑" : "↓"}
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize:9, color:C.textLt, fontWeight:600, marginTop:2 }}>
+            {ins.onSplit ? `${ins.onSplit.high.h1} → ${ins.onSplit.high.h2} (1st → 2nd half)` : "readings > "+TARGET_HIGH}
+          </div>
+        </InsightTile>
+        <InsightTile label="🌑 Overnight Lows" sub={P}>
+          <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
+            <span style={{ fontSize:24, fontWeight:800, color:C.low, lineHeight:1 }}>{ins.onLows}</span>
+            {ins.onLowTrend && ins.onLowTrend!=="flat" && (
+              <span style={{ fontSize:16, fontWeight:800,
+                color: ins.onLowTrend==="up" ? C.high : C.inRange }}>
+                {ins.onLowTrend==="up" ? "↑" : "↓"}
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize:9, color:C.textLt, fontWeight:600, marginTop:2 }}>
+            {ins.onSplit ? `${ins.onSplit.low.h1} → ${ins.onSplit.low.h2} (1st → 2nd half)` : "readings < "+TARGET_LOW}
+          </div>
+        </InsightTile>
       </div>
     </div>
   );
