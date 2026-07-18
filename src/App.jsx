@@ -200,6 +200,62 @@ function computeStats(readings, mealWindows) {
   return { avg, tirPct, lowPct, highPct, a1c, byWindow, dayAvgs, total:readings.length };
 }
 
+// Sugarmate-style insight metrics, computed over fixed windows regardless of
+// the selected Trends period.
+function computeInsights(readings) {
+  if (!readings || readings.length === 0) return null;
+  const now = Date.now();
+  const DAY = 86400000;
+  const inWin  = ms => readings.filter(r => now - r.ts <= ms);
+  const inHours = (list, h1, h2) => list.filter(r => { const h = new Date(r.ts).getHours(); return h >= h1 && h <= h2; });
+  const avg = list => list.length ? Math.round(list.reduce((a,b)=>a+b.value,0)/list.length) : null;
+
+  const d3  = inWin(3*DAY), d7 = inWin(7*DAY), d90 = inWin(90*DAY);
+  const h24 = inWin(DAY),  h3 = inWin(3*3600000);
+
+  // GMI (CGM-standard): 3.31 + 0.02392 × mean glucose
+  const mean90 = d90.length ? d90.reduce((a,b)=>a+b.value,0)/d90.length : null;
+  const gmi = mean90 ? (3.31 + 0.02392*mean90).toFixed(1) : null;
+
+  // Std dev over 90 days
+  let sd = null;
+  if (d90.length > 1 && mean90 !== null) {
+    const v = d90.reduce((a,b)=>a+(b.value-mean90)**2,0)/d90.length;
+    sd = Math.round(Math.sqrt(v));
+  }
+
+  // Quartiles over 7 days
+  let q = null;
+  if (d7.length >= 4) {
+    const vals = d7.map(r=>r.value).sort((a,b)=>a-b);
+    const at = p => vals[Math.min(vals.length-1, Math.floor(p*vals.length))];
+    q = { p25: at(0.25), p50: at(0.5), p75: at(0.75) };
+  }
+
+  const tir = list => {
+    if (!list.length) return { inR:null, above:null, below:null };
+    const inR   = Math.round(list.filter(r=>r.value>=TARGET_LOW&&r.value<=TARGET_HIGH).length/list.length*100);
+    const above = Math.round(list.filter(r=>r.value>TARGET_HIGH).length/list.length*100);
+    const below = Math.round(list.filter(r=>r.value<TARGET_LOW).length/list.length*100);
+    return { inR, above, below };
+  };
+  const t24 = tir(h24);
+
+  return {
+    bedtime3:  avg(inHours(d3, 21, 23)),
+    wakeup3:   avg(inHours(d3, 6, 8)),
+    avg3h:     avg(h3),
+    avg24:     avg(h24),
+    gmi,
+    inR24:     t24.inR,  above24: t24.above,  below24: t24.below,
+    q,
+    sd,
+    highs7:    d7.filter(r=>r.value>TARGET_HIGH).length,
+    lows7:     d7.filter(r=>r.value<TARGET_LOW).length,
+    unicorns7: d7.filter(r=>r.value===100).length,
+  };
+}
+
 // ═══ Atoms ═══════════════════════════════════════════════════════════════════
 function Card({ children, style={} }) {
   return <div style={{ background:C.tile, borderRadius:16, border:"none",
@@ -508,11 +564,12 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
   const fromTs = useCustom ? fromDateInputVal(customFrom) : Date.now() - period*24*60*60*1000;
   const toTs   = useCustom ? fromDateInputVal(customTo) + 86400000 : Date.now();
 
-  const all = (() => {
+  const merged = (() => {
     const map = {};
     [...readings, ...(bgHistory||[])].forEach(r => { map[r.ts]=r; });
-    return Object.values(map).filter(r => r.ts >= fromTs && r.ts <= toTs).sort((a,b)=>a.ts-b.ts);
+    return Object.values(map).sort((a,b)=>a.ts-b.ts);
   })();
+  const all = merged.filter(r => r.ts >= fromTs && r.ts <= toTs);
 
   const stats = computeStats(all, mealWindows);
   const fmtH = h => h===0?"12am":h<12?`${h}am`:h===12?"12pm":`${h-12}pm`;
@@ -584,6 +641,13 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
 
   return (
     <div className="slideUp">
+
+      {/* ── Insights (fixed windows, Sugarmate-style) ── */}
+      <InsightsGrid readings={merged}/>
+
+      {/* ── Trends ── */}
+      <div style={{ fontWeight:800, fontSize:20, color:C.textDk, marginBottom:12, marginTop:4,
+        display:"inline-block", borderBottom:`3px solid ${C.ravens}`, paddingBottom:3 }}>Trends</div>
 
       {/* Period picker */}
       <div style={{ marginBottom:14 }}>
@@ -744,6 +808,76 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
       <div style={{ textAlign:"center", color:C.textLt, fontSize:11, paddingBottom:20, lineHeight:1.6 }}>
         {readings.length.toLocaleString()} readings stored · accumulates every 5 min<br/>
         Always confirm ratio changes with Hudson's endocrinologist
+      </div>
+    </div>
+  );
+}
+
+// ═══ Insights grid (Sugarmate-style tiles) ═══════════════════════════════════
+function InsightTile({ label, sub, children }) {
+  return (
+    <div style={{ background:C.tile, borderRadius:14, padding:"12px 12px 13px", minHeight:88 }}>
+      <div style={{ fontSize:12, fontWeight:700, color:C.textDk, lineHeight:1.25 }}>{label}</div>
+      <div style={{ fontSize:10, color:C.textLt, fontWeight:600, marginTop:1 }}>{sub}</div>
+      <div style={{ marginTop:8 }}>{children}</div>
+    </div>
+  );
+}
+
+function Big({ v, unit }) {
+  return (
+    <div>
+      <span style={{ fontSize:26, fontWeight:800, color:C.textDk, letterSpacing:-0.5, lineHeight:1 }}>{v ?? "—"}</span>
+      {unit && <div style={{ fontSize:10, color:C.textMd, fontWeight:600, marginTop:2 }}>{unit}</div>}
+    </div>
+  );
+}
+
+function InsightsGrid({ readings }) {
+  const ins = computeInsights(readings);
+  if (!ins) return null;
+  return (
+    <div style={{ marginBottom:18 }}>
+      <div style={{ fontWeight:800, fontSize:20, color:C.textDk, marginBottom:2,
+        display:"inline-block", borderBottom:`3px solid ${C.ravens}`, paddingBottom:3 }}>Insights</div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginTop:12 }}>
+        <InsightTile label="🌙 Bedtime Avg." sub="3 days"><Big v={ins.bedtime3} unit="mg/dL"/></InsightTile>
+        <InsightTile label="☀️ Wake Up Avg." sub="3 days"><Big v={ins.wakeup3} unit="mg/dL"/></InsightTile>
+        <InsightTile label="Average Glucose" sub="3 hours"><Big v={ins.avg3h} unit="mg/dL"/></InsightTile>
+        <InsightTile label="Average Glucose" sub="24 hours"><Big v={ins.avg24} unit="mg/dL"/></InsightTile>
+        <InsightTile label="GMI" sub="90 days"><Big v={ins.gmi} unit="%"/></InsightTile>
+        <InsightTile label="% In Range" sub="24 hours">
+          <div style={{ width:46, height:46, borderRadius:"50%", border:`3px solid ${C.textDk}`,
+            display:"flex", alignItems:"center", justifyContent:"center",
+            fontSize:16, fontWeight:800, color:C.textDk }}>{ins.inR24 ?? "—"}</div>
+        </InsightTile>
+        <InsightTile label="Quartiles" sub="7 days">
+          {ins.q ? (
+            <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
+              <span style={{ fontSize:12, fontWeight:600, color:C.textMd }}>{ins.q.p25}</span>
+              <span style={{ fontSize:20, fontWeight:800, color:C.textDk }}>{ins.q.p50}</span>
+              <span style={{ fontSize:12, fontWeight:600, color:C.textMd }}>{ins.q.p75}</span>
+            </div>
+          ) : <Big v={null}/>}
+        </InsightTile>
+        <InsightTile label="Std. Dev." sub="90 days"><Big v={ins.sd !== null ? `±${ins.sd}` : null} unit="mg/dL"/></InsightTile>
+        <InsightTile label="Normal Range %" sub="24 hours">
+          {ins.inR24 !== null ? (
+            <div style={{ display:"flex", gap:2, alignItems:"center" }}>
+              <span style={{ fontSize:11, fontWeight:700, color:C.low, minWidth:22 }}>{ins.below24}%</span>
+              <span style={{ fontSize:16, fontWeight:800, color:C.textDk }}>{ins.inR24}%</span>
+              <span style={{ fontSize:11, fontWeight:700, color:C.high, minWidth:22 }}>{ins.above24}%</span>
+            </div>
+          ) : <Big v={null}/>}
+        </InsightTile>
+        <InsightTile label="Highs/Lows" sub="7 days">
+          <div style={{ fontSize:18, fontWeight:800, color:C.textDk }}>
+            <span style={{ color:C.high }}>{ins.highs7}</span>
+            <span style={{ color:C.textLt, fontWeight:600 }}> / </span>
+            <span style={{ color:C.low }}>{ins.lows7}</span>
+          </div>
+        </InsightTile>
+        <InsightTile label="🦄 Unicorns" sub="7 days"><Big v={ins.unicorns7} unit="perfect 100s"/></InsightTile>
       </div>
     </div>
   );
