@@ -56,7 +56,7 @@ export default async function handler(req, res) {
   if (!apiKey) return res.status(500).json({ error: "ANTHROPIC_API_KEY not configured" });
 
   try {
-    const { question, history, fromTs, toTs } = req.body || {};
+    const { question, history } = req.body || {};
     if (!question || typeof question !== "string" || question.length > 2000) {
       return res.status(400).json({ error: "invalid question" });
     }
@@ -76,9 +76,6 @@ export default async function handler(req, res) {
       { rangeLow, rangeHigh, mealWindows }
     );
 
-    const selNote = (fromTs && toTs)
-      ? `The user's app currently has the date filter set to ${DAY_FMT.format(new Date(fromTs))} through ${DAY_FMT.format(new Date(toTs))}. If their question says "this period" or similar, that's the range they mean.`
-      : "";
 
     const system = `You are the data assistant inside a family-built insulin tracking app for a child named Hudson, who has type 1 diabetes and uses an Omnipod pump and Dexcom G7 CGM. You answer questions from Hudson's parents (and sometimes Hudson) about his glucose data.
 
@@ -89,7 +86,6 @@ POD & SENSOR CHANGE LOG (manually logged; may be incomplete):
 ${siteLines.length ? siteLines.join("\n") : "(none logged yet)"}
 
 CONTEXT: Insulin-to-carb ratios: ${JSON.stringify(ratios || {})}. Known history: he was on injections (not the pump) roughly Jul 7-16, 2026; on the pump otherwise. The store has a few small collection gaps; days with n well below 288 are partially recorded — say so rather than over-concluding from them.
-${selNote}
 
 RULES:
 - Answer from the data above. Cite actual numbers and dates. If the data can't answer the question, say so plainly.
