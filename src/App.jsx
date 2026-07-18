@@ -2403,7 +2403,7 @@ export default function App() {
           </Sheet>)}
 
           {/* ══ SITES ══ */}
-          {sheet==="sites"&&(<Sheet title="📍 Sites" onClose={()=>setSheet(null)}>
+          {sheet==="sites"&&(<Sheet title="📍 Device Management" onClose={()=>setSheet(null)}>
             <SitesTab sites={sites} onAdd={addSite} onDelete={removeSite}/>
           </Sheet>)}
 
@@ -2424,8 +2424,8 @@ export default function App() {
           <div style={{ position:"fixed", left:0, right:0, bottom:26, zIndex:8500,
             display:"flex", flexDirection:"column", alignItems:"center", gap:10, pointerEvents:"none" }}>
             {fabOpen && [
+              ["sites","📍","Device management"],
               ["settings","⚙️","Settings"],
-              ["sites","📍","Log a site change"],
               ["log",  "📋","Dose history"],
               ["dose", "💉","Calculate a dose"],
             ].map(([id,icon,label])=>(
