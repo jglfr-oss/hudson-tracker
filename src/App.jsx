@@ -728,6 +728,172 @@ function HighLowTrend({ readings, rangeLow, rangeHigh, mealWindows }) {
   );
 }
 
+
+// ═══ Site Trends — usage, wear, and BG-by-pod-age ════════════════════════════
+function HBar({ label, count, max, color, note }) {
+  const pct = max > 0 ? Math.max(4, (count/max)*100) : 0;
+  return (
+    <div style={{ marginBottom:8 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
+        <span style={{ fontSize:11, fontWeight:700, color:C.textDk }}>{label}
+          {note && <span style={{ color:C.textLt, fontWeight:600 }}> · {note}</span>}
+        </span>
+        <span style={{ fontSize:11, fontWeight:800, color:C.textDk }}>{count}</span>
+      </div>
+      <div style={{ height:8, background:C.white, borderRadius:4 }}>
+        <div style={{ width:pct+"%", height:"100%", background:color, borderRadius:4, transition:"width .3s" }}/>
+      </div>
+    </div>
+  );
+}
+
+function SiteTrends({ sites, readings, fromTs, toTs }) {
+  const inRange = (sites||[]).filter(x => x && typeof x.ts==="number" && x.ts >= fromTs && x.ts <= toTs);
+  const pods    = inRange.filter(x=>x.device==="pod").sort((a,b)=>a.ts-b.ts);
+  const sensors = inRange.filter(x=>x.device==="sensor").sort((a,b)=>a.ts-b.ts);
+
+  const fmtAgoDays = ts => {
+    const dd = (Date.now()-ts)/86400000;
+    return dd < 1 ? "today" : dd < 2 ? "1 day ago" : Math.floor(dd)+" days ago";
+  };
+
+  // Wear durations = time between consecutive changes of the same device
+  const wears = list => {
+    const out=[];
+    for (let i=1;i<list.length;i++) out.push((list[i].ts-list[i-1].ts)/86400000);
+    return out;
+  };
+  const avgW = list => { const w=wears(list); return w.length? (w.reduce((a,b)=>a+b,0)/w.length) : null; };
+  const podWear = avgW(pods), senWear = avgW(sensors);
+
+  // Usage per location
+  const tally = list => {
+    const t={}; list.forEach(x=>{ t[x.site]=(t[x.site]||0)+1; }); 
+    return Object.entries(t).sort((a,b)=>b[1]-a[1]);
+  };
+  const podUse = tally(pods), senUse = tally(sensors);
+  const podMax = podUse.length? podUse[0][1] : 0;
+  const senMax = senUse.length? senUse[0][1] : 0;
+
+  // Rotation freshness: last-used per site, all-time (not window-limited on purpose)
+  const lastUsed = dev => {
+    const m={};
+    (sites||[]).filter(x=>x.device===dev).forEach(x=>{ if(!m[x.site]||x.ts>m[x.site]) m[x.site]=x.ts; });
+    return m;
+  };
+
+  // BG by pod age — needs enough wears to mean anything
+  const MIN_WEARS = 10;
+  const podAgeStats = (() => {
+    if (pods.length < MIN_WEARS + 1 || !readings || readings.length===0) return null;
+    const buckets = [ {label:"Day 1", lo:0, hi:1, vals:[]}, {label:"Day 2", lo:1, hi:2, vals:[]}, {label:"Day 3+", lo:2, hi:4, vals:[]} ];
+    for (let i=0;i<pods.length;i++) {
+      const start = pods[i].ts;
+      const end   = i+1<pods.length ? pods[i+1].ts : Math.min(start+3.5*86400000, Date.now());
+      for (const r of readings) {
+        if (r.ts < start) continue;
+        if (r.ts >= end) continue;
+        const age = (r.ts-start)/86400000;
+        const b = buckets.find(b => age>=b.lo && age<b.hi);
+        if (b) b.vals.push(r.value);
+      }
+    }
+    if (buckets.some(b=>b.vals.length<50)) return null;
+    return buckets.map(b=>({
+      label:b.label,
+      avg: Math.round(b.vals.reduce((a,v)=>a+v,0)/b.vals.length),
+      hiPct: Math.round(b.vals.filter(v=>v>TARGET_HIGH).length/b.vals.length*100),
+      n: b.vals.length,
+    }));
+  })();
+
+  const expectedPods = Math.round((toTs-fromTs)/86400000/3);
+
+  if (inRange.length===0) return (
+    <Card style={{ marginBottom:12 }}>
+      <div style={{ fontWeight:800, color:C.textDk, fontSize:15, marginBottom:4 }}>📍 Site Trends</div>
+      <div style={{ color:C.textLt, fontSize:12, lineHeight:1.5 }}>
+        No pod or sensor changes logged in this date range yet.
+        Log changes from the ➕ button → Log a site change, and this section fills in.
+      </div>
+    </Card>
+  );
+
+  return (
+    <Card style={{ marginBottom:12 }}>
+      <div style={{ fontWeight:800, color:C.textDk, fontSize:15, marginBottom:4 }}>📍 Site Trends</div>
+      <div style={{ color:C.textLt, fontSize:11, marginBottom:14 }}>
+        From logged pod &amp; sensor changes in the selected range
+      </div>
+
+      {/* Summary tiles */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8, marginBottom:16 }}>
+        <div style={{ background:C.white, borderRadius:12, padding:"10px 12px" }}>
+          <div style={{ fontSize:11, fontWeight:700, color:C.textDk }}>💊 Pod changes</div>
+          <div style={{ fontSize:22, fontWeight:800, color:C.textDk, marginTop:2 }}>{pods.length}</div>
+          <div style={{ fontSize:10, color:C.textLt, fontWeight:600 }}>
+            {expectedPods>0 && pods.length<expectedPods*0.7
+              ? `~${expectedPods} expected — some may be unlogged`
+              : podWear!==null ? `avg wear ${podWear.toFixed(1)}d` : "log more to see avg wear"}
+          </div>
+        </div>
+        <div style={{ background:C.white, borderRadius:12, padding:"10px 12px" }}>
+          <div style={{ fontSize:11, fontWeight:700, color:C.textDk }}>📡 Sensor changes</div>
+          <div style={{ fontSize:22, fontWeight:800, color:C.textDk, marginTop:2 }}>{sensors.length}</div>
+          <div style={{ fontSize:10, color:C.textLt, fontWeight:600 }}>
+            {senWear!==null ? `avg wear ${senWear.toFixed(1)}d` : "log more to see avg wear"}
+          </div>
+        </div>
+      </div>
+
+      {/* Usage bars */}
+      {podUse.length>0 && (<>
+        <div style={{ fontSize:12, fontWeight:800, color:C.textDk, marginBottom:8 }}>💊 Pod sites used</div>
+        {podUse.map(([site,n])=>(
+          <HBar key={site} label={site} count={n} max={podMax} color={C.ravens}
+            note={fmtAgoDays(lastUsed("pod")[site])}/>
+        ))}
+      </>)}
+      {senUse.length>0 && (<>
+        <div style={{ fontSize:12, fontWeight:800, color:C.textDk, margin:"14px 0 8px" }}>📡 Sensor sites used</div>
+        {senUse.map(([site,n])=>(
+          <HBar key={site} label={site} count={n} max={senMax} color={C.teal}
+            note={fmtAgoDays(lastUsed("sensor")[site])}/>
+        ))}
+      </>)}
+
+      {/* Rotation nudge: heavy reuse of one spot */}
+      {podMax >= 3 && podUse.length>=2 && podMax >= 2*(podUse[1]?.[1]||1) && (
+        <div style={{ background:C.low+"14", borderRadius:10, padding:"8px 10px", marginTop:12,
+          fontSize:11, fontWeight:700, color:C.low, lineHeight:1.4 }}>
+          💡 {podUse[0][0]} is getting most of the pods — spreading sites out helps absorption stay predictable.
+        </div>
+      )}
+
+      {/* BG by pod age */}
+      <div style={{ marginTop:16 }}>
+        <div style={{ fontSize:12, fontWeight:800, color:C.textDk, marginBottom:8 }}>💊 BG by pod age</div>
+        {podAgeStats ? (
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+            {podAgeStats.map(b=>(
+              <div key={b.label} style={{ background:C.white, borderRadius:12, padding:"10px 10px", textAlign:"center" }}>
+                <div style={{ fontSize:10, fontWeight:700, color:C.textMd }}>{b.label}</div>
+                <div style={{ fontSize:20, fontWeight:800, color: b.avg>TARGET_HIGH?C.low:C.textDk, marginTop:2 }}>{b.avg}</div>
+                <div style={{ fontSize:9, color:C.textLt, fontWeight:600 }}>avg mg/dL · {b.hiPct}% high</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ fontSize:11, color:C.textLt, fontWeight:600, lineHeight:1.5 }}>
+            Unlocks after ~{MIN_WEARS} logged pod changes — shows whether BG drifts up as each pod ages.
+            {pods.length>0 && ` (${pods.length} so far)`}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 // ═══ Analytics Tab ═══════════════════════════════════════════════════════════
 const PRESET_PERIODS = [
   { label:"7D",  days:7  },
@@ -747,7 +913,7 @@ function fromDateInputVal(s) {
   return new Date(y, m-1, d).getTime();
 }
 
-function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
+function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sites }) {
   const [view,       setView    ] = useState("insights"); // insights | trends
   const [loading,    setLoading ] = useState(true);
   const [readings,   setReadings] = useState([]);
@@ -1030,6 +1196,9 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
 
       {/* Highs & lows over time — raw daily counts */}
       <HighLowTrend readings={all} rangeLow={rangeLow} rangeHigh={rangeHigh} mealWindows={mealWindows}/>
+
+      {/* Site trends — driven by the same date filters */}
+      <SiteTrends sites={sites} readings={all} fromTs={fromTs} toTs={toTs}/>
 
       </>)}
 
@@ -2018,7 +2187,7 @@ export default function App() {
           </Sheet>)}
 
           {/* ══ HOME = TRENDS ══ */}
-          <AnalyticsTab bgHistory={history} ratios={ratios} rangeLow={rangeLow} rangeHigh={rangeHigh} mealWindows={mealWindows}/>
+          <AnalyticsTab bgHistory={history} ratios={ratios} rangeLow={rangeLow} rangeHigh={rangeHigh} mealWindows={mealWindows} sites={sites}/>
         </div>
 
 
