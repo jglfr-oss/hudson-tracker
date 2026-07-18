@@ -18,6 +18,42 @@ const SUBS_KEY  = "hudson-push-subs";
 const SITES_KEY = "hudson-site-log";
 const STATE_KEY = "hudson-device-alerts";
 const WEAR_DAYS = { pod: 3, sensor: 10 };
+
+// Site options must mirror SITE_OPTIONS in src/App.jsx
+const SITE_CHOICES = {
+  pod: [
+    "Abdomen — L", "Abdomen — R",
+    "Lower back — L", "Lower back — R",
+    "Upper arm — L", "Upper arm — R",
+    "Thigh — L", "Thigh — R",
+  ],
+  sensor: [
+    "Upper arm — L", "Upper arm — R",
+    "Abdomen — L", "Abdomen — R",
+    "Thigh — L", "Thigh — R",
+    "Lower back — L", "Lower back — R",
+    "Upper buttock — L", "Upper buttock — R",
+  ],
+};
+
+// Recommend the longest-rested site for a device (never-used sites first).
+function recommendSite(dev, sites) {
+  const opts = SITE_CHOICES[dev] || [];
+  if (opts.length === 0) return null;
+  const last = {};
+  (sites || []).forEach(x => {
+    if (x && x.device === dev && x.site && typeof x.ts === "number") {
+      if (!last[x.site] || x.ts > last[x.site]) last[x.site] = x.ts;
+    }
+  });
+  const never = opts.filter(o => !last[o]);
+  if (never.length) return { site: never[0], note: "not used yet" };
+  let best = null;
+  for (const o of opts) if (!best || last[o] < last[best]) best = o;
+  const days = Math.floor((Date.now() - last[best]) / 86400000);
+  return { site: best, note: days === 0 ? "used today" : `rested ${days}d` };
+}
+
 const LABEL     = { pod: "Pod", sensor: "G7 sensor" };
 const ICON      = { pod: "🟠", sensor: "🟢" };
 
@@ -80,6 +116,8 @@ export default async function handler(req, res) {
       }
       const st = state[dev];
       const where = cur.site ? ` (${cur.site})` : "";
+      const rec = recommendSite(dev, sites);
+      const recTxt = rec ? ` Next spot idea: ${rec.site} (${rec.note}).` : "";
 
       if (hoursLeft <= 0) {
         // Overdue: hourly
@@ -88,7 +126,7 @@ export default async function handler(req, res) {
           const overTxt = overBy < 24 ? `${Math.round(overBy)}h` : `${(overBy/24).toFixed(1)}d`;
           actions.push(pushAll(
             `🔴 ${LABEL[dev]} overdue`,
-            `${ICON[dev]} ${LABEL[dev]} is ${overTxt} past its ${WEAR_DAYS[dev]}-day wear${where}. Change it and log it in the app.`,
+            `${ICON[dev]} ${LABEL[dev]} is ${overTxt} past its ${WEAR_DAYS[dev]}-day wear${where}. Change it and log it in the app.${recTxt}`,
             `device-${dev}-overdue`
           ));
           st.lastOverdue = now;
@@ -96,7 +134,7 @@ export default async function handler(req, res) {
       } else if (hoursLeft <= 1 && !st.sent1h) {
         actions.push(pushAll(
           `⚠️ ${LABEL[dev]} change in ~1 hour`,
-          `${ICON[dev]} Current ${LABEL[dev].toLowerCase()}${where} hits ${WEAR_DAYS[dev]} days in about an hour.`,
+          `${ICON[dev]} Current ${LABEL[dev].toLowerCase()}${where} hits ${WEAR_DAYS[dev]} days in about an hour.${recTxt}`,
           `device-${dev}-1h`
         ));
         st.sent1h = true;
@@ -104,7 +142,7 @@ export default async function handler(req, res) {
       } else if (hoursLeft <= 3 && !st.sent3h) {
         actions.push(pushAll(
           `⏳ ${LABEL[dev]} change in ~3 hours`,
-          `${ICON[dev]} Current ${LABEL[dev].toLowerCase()}${where} hits ${WEAR_DAYS[dev]} days in about 3 hours — good time to plan the swap.`,
+          `${ICON[dev]} Current ${LABEL[dev].toLowerCase()}${where} hits ${WEAR_DAYS[dev]} days in about 3 hours — good time to plan the swap.${recTxt}`,
           `device-${dev}-3h`
         ));
         st.sent3h = true;
