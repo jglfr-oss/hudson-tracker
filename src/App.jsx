@@ -1073,7 +1073,7 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
   const [view,       setView    ] = useState("insights"); // insights | trends
   const [loading,    setLoading ] = useState(true);
   const [readings,   setReadings] = useState([]);
-  const [period,     setPeriod  ] = useState(30);
+  const [period,     setPeriod  ] = useState(7);
   const [useCustom,  setUseCustom] = useState(false);
   const ninetyAgo = Date.now() - 90*24*60*60*1000;
   const [customFrom, setCustomFrom] = useState(toDateInputVal(ninetyAgo));
