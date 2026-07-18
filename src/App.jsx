@@ -2728,7 +2728,7 @@ export default function App() {
           <div style={{ position:"fixed", left:0, right:0, bottom:26, zIndex:8500,
             display:"flex", flexDirection:"column", alignItems:"center", gap:10, pointerEvents:"none" }}>
             {fabOpen && [
-              ["sites","📍","Device management"],
+              ["sites","📍","Devices"],
               ["settings","⚙️","Settings"],
               ["log",  "📋","Dose history"],
               ["dose", "💉","Calculate a dose"],
@@ -2738,6 +2738,7 @@ export default function App() {
                 style={{ pointerEvents:"auto", display:"flex", alignItems:"center", gap:10,
                   background:C.white, border:"none", borderRadius:26, padding:"12px 20px",
                   fontWeight:700, fontSize:15, color:C.textDk, fontFamily:"inherit",
+                  whiteSpace:"nowrap",
                   boxShadow:"0 4px 18px rgba(0,0,0,0.18)", cursor:"pointer",
                   animation:"slideUp .18s ease both" }}>
                 <span style={{ fontSize:18 }}>{icon}</span>{label}
