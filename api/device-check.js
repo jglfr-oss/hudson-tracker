@@ -82,7 +82,10 @@ export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET;
   if (secret) {
     const auth = req.headers.authorization || "";
-    if (auth !== `Bearer ${secret}`) return res.status(401).json({ error: "unauthorized" });
+    const qkey = (req.query && req.query.key) || "";
+    if (auth !== `Bearer ${secret}` && qkey !== secret) {
+      return res.status(401).json({ error: "unauthorized" });
+    }
   }
 
   const publicKey  = process.env.VITE_VAPID_PUBLIC_KEY || process.env.VAPID_PUBLIC_KEY;
