@@ -242,8 +242,10 @@ function computeInsights(periodReadings, allReadings) {
     };
   };
   const t24 = tir(h24);
+  const tP  = tir(P);
 
   return {
+    inRP: tP.inR, aboveP: tP.above, belowP: tP.below,
     // period-driven
     bedtimeP:  avg(inHours(P, 21, 23)),
     wakeupP:   avg(inHours(P, 6, 8)),
@@ -336,6 +338,23 @@ function BGChart({ live, store }) {
   const yH=yS(TARGET_HIGH), yL=yS(TARGET_LOW);
 
   const shown = pts.map(r=>({ x:xS(r.ts), y:yS(r.value), v:r.value, ts:r.ts }));
+
+  // Stretches >30 min with no readings, clipped to the visible window
+  const GAP_MS = 30*60000;
+  const gaps = [];
+  {
+    const inOrNear = data.filter(r => r.ts >= left - GAP_MS && r.ts <= right + GAP_MS);
+    if (inOrNear.length === 0) {
+      gaps.push([left, right]);
+    } else {
+      if (inOrNear[0].ts - left > GAP_MS) gaps.push([left, inOrNear[0].ts]);
+      for (let i=1;i<inOrNear.length;i++) {
+        if (inOrNear[i].ts - inOrNear[i-1].ts > GAP_MS) gaps.push([inOrNear[i-1].ts, inOrNear[i].ts]);
+      }
+      const last = inOrNear[inOrNear.length-1].ts;
+      if (right - last > GAP_MS && right < Date.now() - GAP_MS) gaps.push([last, right]);
+    }
+  }
 
   // Time axis: tick count adapts to the window width
   const tickCount = winMs <= 6*3600000 ? 4 : winMs <= 12*3600000 ? 5 : 5;
@@ -498,7 +517,26 @@ function BGChart({ live, store }) {
         onMouseDown={onDown} onMouseUp={onUp}
         onTouchStart={onDown} onTouchMove={onMove} onTouchEnd={onUp}>
 
+        <defs>
+          <pattern id="gapHatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width="6" height="6" fill="#FAFAFB"/>
+            <line x1="0" y1="0" x2="0" y2="6" stroke={C.border} strokeWidth="1.5"/>
+          </pattern>
+        </defs>
         <rect x={PAD.left} y={yH} width={cW} height={yL-yH} fill={C.band} rx="2"/>
+        {gaps.map(([g1,g2],i)=>{
+          const gx1 = Math.max(PAD.left, xS(g1)), gx2 = Math.min(PAD.left+cW, xS(g2));
+          if (gx2-gx1 < 3) return null;
+          return (
+            <g key={"gap"+i}>
+              <rect x={gx1} y={PAD.top} width={gx2-gx1} height={cH} fill="url(#gapHatch)" opacity="0.7"/>
+              {gx2-gx1 > 60 && (
+                <text x={(gx1+gx2)/2} y={PAD.top+cH/2} fontSize="9" fill={C.textLt} fontWeight="600"
+                  textAnchor="middle" fontFamily="Nunito Sans,sans-serif">no data</text>
+              )}
+            </g>
+          );
+        })}
         <line x1={PAD.left} y1={yL} x2={PAD.left+cW} y2={yL} stroke={C.high} strokeWidth="1"/>
         <text x={W-PAD.right+4} y={yH+4} fontSize="9" fill={C.textLt} fontWeight="600">{TARGET_HIGH}</text>
         <text x={W-PAD.right+4} y={yL+4} fontSize="9" fill={C.textLt} fontWeight="600">{TARGET_LOW}</text>
@@ -1046,6 +1084,20 @@ function InsightsGrid({ periodReadings, allReadings, periodLabel }) {
           ) : <Big v={null}/>}
         </InsightTile>
 
+        <InsightTile label="% In Range" sub={P}>
+          <div style={{ width:46, height:46, borderRadius:"50%", border:`3px solid ${C.textDk}`,
+            display:"flex", alignItems:"center", justifyContent:"center",
+            fontSize:16, fontWeight:800, color:C.textDk }}>{ins.inRP ?? "—"}</div>
+        </InsightTile>
+        <InsightTile label="Normal Range %" sub={P}>
+          {ins.inRP !== null ? (
+            <div style={{ display:"flex", gap:2, alignItems:"center" }}>
+              <span style={{ fontSize:11, fontWeight:700, color:C.low, minWidth:22 }}>{ins.belowP}%</span>
+              <span style={{ fontSize:16, fontWeight:800, color:C.textDk }}>{ins.inRP}%</span>
+              <span style={{ fontSize:11, fontWeight:700, color:C.high, minWidth:22 }}>{ins.aboveP}%</span>
+            </div>
+          ) : <Big v={null}/>}
+        </InsightTile>
         <InsightTile label="Highs/Lows" sub={P}>
           <div style={{ fontSize:18, fontWeight:800 }}>
             <span style={{ color:C.high }}>{ins.highsP}</span>
@@ -1053,24 +1105,10 @@ function InsightsGrid({ periodReadings, allReadings, periodLabel }) {
             <span style={{ color:C.low }}>{ins.lowsP}</span>
           </div>
         </InsightTile>
+
         <InsightTile label="🦄 Unicorns" sub={P}><Big v={ins.unicornsP} unit="perfect 100s"/></InsightTile>
         <InsightTile label="Average Glucose" sub="3 hours"><Big v={ins.avg3h} unit="mg/dL"/></InsightTile>
-
         <InsightTile label="Average Glucose" sub="24 hours"><Big v={ins.avg24} unit="mg/dL"/></InsightTile>
-        <InsightTile label="% In Range" sub="24 hours">
-          <div style={{ width:46, height:46, borderRadius:"50%", border:`3px solid ${C.textDk}`,
-            display:"flex", alignItems:"center", justifyContent:"center",
-            fontSize:16, fontWeight:800, color:C.textDk }}>{ins.inR24 ?? "—"}</div>
-        </InsightTile>
-        <InsightTile label="Normal Range %" sub="24 hours">
-          {ins.inR24 !== null ? (
-            <div style={{ display:"flex", gap:2, alignItems:"center" }}>
-              <span style={{ fontSize:11, fontWeight:700, color:C.low, minWidth:22 }}>{ins.below24}%</span>
-              <span style={{ fontSize:16, fontWeight:800, color:C.textDk }}>{ins.inR24}%</span>
-              <span style={{ fontSize:11, fontWeight:700, color:C.high, minWidth:22 }}>{ins.above24}%</span>
-            </div>
-          ) : <Big v={null}/>}
-        </InsightTile>
       </div>
     </div>
   );
