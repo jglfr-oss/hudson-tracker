@@ -540,6 +540,7 @@ function fromDateInputVal(s) {
 }
 
 function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
+  const [view,       setView    ] = useState("insights"); // insights | trends
   const [loading,    setLoading ] = useState(true);
   const [readings,   setReadings] = useState([]);
   const [period,     setPeriod  ] = useState(30);
@@ -642,13 +643,22 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
   return (
     <div className="slideUp">
 
-      {/* ── Insights (fixed windows, Sugarmate-style) ── */}
-      <InsightsGrid readings={merged}/>
+      {/* ── Insights / Trends switch ── */}
+      <div style={{ display:"flex", gap:22, marginBottom:16, alignItems:"flex-end" }}>
+        {[["insights","Insights"],["trends","Trends"]].map(([id,label])=>(
+          <button key={id} type="button" onClick={()=>setView(id)}
+            style={{ background:"none", border:"none", padding:"0 0 4px", cursor:"pointer",
+              fontFamily:"inherit", fontWeight:800, fontSize:20,
+              color: view===id ? C.textDk : C.textLt,
+              borderBottom: view===id ? `3px solid ${C.ravens}` : "3px solid transparent" }}>
+            {label}
+          </button>
+        ))}
+      </div>
 
-      {/* ── Trends ── */}
-      <div style={{ fontWeight:800, fontSize:20, color:C.textDk, marginBottom:12, marginTop:4,
-        display:"inline-block", borderBottom:`3px solid ${C.ravens}`, paddingBottom:3 }}>Trends</div>
+      {view==="insights" && <InsightsGrid readings={merged}/>}
 
+      {view==="trends" && (<>
       {/* Period picker */}
       <div style={{ marginBottom:14 }}>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:6, marginBottom:8 }}>
@@ -805,6 +815,8 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
       {/* Highs & lows over time — raw daily counts */}
       <HighLowTrend readings={all} rangeLow={rangeLow} rangeHigh={rangeHigh} mealWindows={mealWindows}/>
 
+      </>)}
+
       <div style={{ textAlign:"center", color:C.textLt, fontSize:11, paddingBottom:20, lineHeight:1.6 }}>
         {readings.length.toLocaleString()} readings stored · accumulates every 5 min<br/>
         Always confirm ratio changes with Hudson's endocrinologist
@@ -838,9 +850,7 @@ function InsightsGrid({ readings }) {
   if (!ins) return null;
   return (
     <div style={{ marginBottom:18 }}>
-      <div style={{ fontWeight:800, fontSize:20, color:C.textDk, marginBottom:2,
-        display:"inline-block", borderBottom:`3px solid ${C.ravens}`, paddingBottom:3 }}>Insights</div>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginTop:12 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
         <InsightTile label="🌙 Bedtime Avg." sub="3 days"><Big v={ins.bedtime3} unit="mg/dL"/></InsightTile>
         <InsightTile label="☀️ Wake Up Avg." sub="3 days"><Big v={ins.wakeup3} unit="mg/dL"/></InsightTile>
         <InsightTile label="Average Glucose" sub="3 hours"><Big v={ins.avg3h} unit="mg/dL"/></InsightTile>
