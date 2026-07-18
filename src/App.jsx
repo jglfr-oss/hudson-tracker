@@ -2437,7 +2437,7 @@ export default function App() {
                   boxShadow:"0 4px 18px rgba(0,0,0,0.18)", cursor:"pointer",
                   animation:"slideUp .18s ease both" }}>
                 <span style={{ fontSize:18 }}>{icon}</span>{label}
-          is    </button>
+              </button>
             ))}
             <button type="button" onClick={()=>setFabOpen(o=>!o)}
               style={{ pointerEvents:"auto", width:58, height:58, borderRadius:"50%",
