@@ -1417,9 +1417,9 @@ function InsightTile({ label, sub, children }) {
 
 function Big({ v, unit }) {
   return (
-    <div>
+    <div style={{ display:"flex", alignItems:"baseline", gap:4 }}>
       <span style={{ fontSize:26, fontWeight:800, color:C.textDk, letterSpacing:-0.5, lineHeight:1 }}>{v ?? "—"}</span>
-      {unit && <div style={{ fontSize:10, color:C.textMd, fontWeight:600, marginTop:2 }}>{unit}</div>}
+      {unit && <span style={{ fontSize:10, color:C.textMd, fontWeight:600 }}>{unit}</span>}
     </div>
   );
 }
@@ -1439,30 +1439,28 @@ function InsightsGrid({ periodReadings, allReadings, periodLabel, mealWindows, f
         <InsightTile label="☀️ Wake Up Avg." sub={P}><Big v={ins.wakeupP} unit="mg/dL"/></InsightTile>
         <InsightTile label="Quartiles" sub={P}>
           {ins.q ? (
-            <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
+            <div style={{ display:"flex", alignItems:"baseline", gap:5 }}>
               <span style={{ fontSize:12, fontWeight:600, color:C.textMd }}>{ins.q.p25}</span>
-              <span style={{ fontSize:24, fontWeight:800, color:C.textDk, letterSpacing:-0.5 }}>{ins.q.p50}</span>
+              <span style={{ fontSize:26, fontWeight:800, color:C.textDk, letterSpacing:-0.5, lineHeight:1 }}>{ins.q.p50}</span>
               <span style={{ fontSize:12, fontWeight:600, color:C.textMd }}>{ins.q.p75}</span>
             </div>
           ) : <Big v={null}/>}
         </InsightTile>
 
         <InsightTile label="% In Range" sub={P}>
-          <div style={{ width:46, height:46, borderRadius:"50%", border:`3px solid ${C.textDk}`,
-            display:"flex", alignItems:"center", justifyContent:"center",
-            fontSize:16, fontWeight:800, color:C.textDk }}>{ins.inRP ?? "—"}</div>
+          <Big v={ins.inRP !== null ? `${ins.inRP}%` : null}/>
         </InsightTile>
         <InsightTile label="Normal Range %" sub={P}>
           {ins.inRP !== null ? (
-            <div style={{ display:"flex", gap:2, alignItems:"center" }}>
-              <span style={{ fontSize:11, fontWeight:700, color:C.low, minWidth:22 }}>{ins.belowP}%</span>
-              <span style={{ fontSize:16, fontWeight:800, color:C.textDk }}>{ins.inRP}%</span>
-              <span style={{ fontSize:11, fontWeight:700, color:C.high, minWidth:22 }}>{ins.aboveP}%</span>
+            <div style={{ display:"flex", gap:5, alignItems:"baseline" }}>
+              <span style={{ fontSize:12, fontWeight:700, color:C.low }}>{ins.belowP}%</span>
+              <span style={{ fontSize:26, fontWeight:800, color:C.textDk, letterSpacing:-0.5, lineHeight:1 }}>{ins.inRP}%</span>
+              <span style={{ fontSize:12, fontWeight:700, color:C.high }}>{ins.aboveP}%</span>
             </div>
           ) : <Big v={null}/>}
         </InsightTile>
         <InsightTile label="Highs/Lows" sub={P}>
-          <div style={{ fontSize:22, fontWeight:800, letterSpacing:-0.5 }}>
+          <div style={{ fontSize:26, fontWeight:800, letterSpacing:-0.5, lineHeight:1 }}>
             <span style={{ color:C.high }}>{ins.highsP}</span>
             <span style={{ color:C.textLt, fontWeight:600 }}> / </span>
             <span style={{ color:C.low }}>{ins.lowsP}</span>
