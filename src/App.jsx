@@ -507,11 +507,16 @@ function BGChart({ live, store }) {
 
       {/* Window label */}
       <div style={{ fontSize:11, color:C.textLt, fontWeight:600, marginBottom:4 }}>
-        {isLive ? "Live" : new Date(left).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
-        {" · "}
-        {new Date(left).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
-        {" – "}
-        {new Date(right).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
+        {(() => {
+          const l = new Date(left), r = new Date(right);
+          const day  = d => d.toLocaleDateString("en-US",{month:"short",day:"numeric"});
+          const time = d => d.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
+          const sameDay = l.toDateString() === r.toDateString();
+          const range = sameDay
+            ? `${day(l)} · ${time(l)} – ${time(r)}`
+            : `${day(l)} ${time(l)} – ${day(r)} ${time(r)}`;
+          return isLive ? `Live · ${range}` : range;
+        })()}
       </div>
 
       {pts.length===0 && (
@@ -545,6 +550,14 @@ function BGChart({ live, store }) {
           </pattern>
         </defs>
         <rect x={PAD.left} y={yH} width={cW} height={yL-yH} fill={C.band} rx="2"/>
+        {[100,200,300,400].map(v=>(
+          <g key={"ax"+v}>
+            <line x1={PAD.left} y1={yS(v)} x2={PAD.left+cW} y2={yS(v)}
+              stroke={C.border} strokeWidth="0.5" opacity="0.6"/>
+            <text x={W-PAD.right+4} y={yS(v)+3} fontSize="8.5" fill={C.textLt} fontWeight="600"
+              fontFamily="Nunito Sans,sans-serif">{v}</text>
+          </g>
+        ))}
         {gaps.map(([g1,g2],i)=>{
           const gx1 = Math.max(PAD.left, xS(g1)), gx2 = Math.min(PAD.left+cW, xS(g2));
           if (gx2-gx1 < 3) return null;
@@ -559,8 +572,10 @@ function BGChart({ live, store }) {
           );
         })}
         <line x1={PAD.left} y1={yL} x2={PAD.left+cW} y2={yL} stroke={C.high} strokeWidth="1"/>
-        <text x={W-PAD.right+4} y={yH+4} fontSize="9" fill={C.textLt} fontWeight="600">{TARGET_HIGH}</text>
-        <text x={W-PAD.right+4} y={yL+4} fontSize="9" fill={C.textLt} fontWeight="600">{TARGET_LOW}</text>
+        <text x={PAD.left+3} y={yH-3} fontSize="8" fill={C.textLt} fontWeight="700"
+          fontFamily="Nunito Sans,sans-serif">{TARGET_HIGH}</text>
+        <text x={PAD.left+3} y={yL+9} fontSize="8" fill={C.high} fontWeight="700" opacity="0.8"
+          fontFamily="Nunito Sans,sans-serif">{TARGET_LOW}</text>
 
         {ticks.map((t,i)=>(
           <line key={"g"+i} x1={t.x} y1={PAD.top} x2={t.x} y2={PAD.top+cH}
@@ -749,6 +764,118 @@ function HighLowTrend({ readings, rangeLow, rangeHigh, mealWindows }) {
   );
 }
 
+
+
+// ═══ Ask — chat with Claude about the data ═══════════════════════════════════
+const ASK_SUGGESTIONS = [
+  "How were overnights this week vs last week?",
+  "Which day of the week runs highest?",
+  "Did going back on the pump help?",
+  "Any pattern before the overnight lows?",
+];
+
+function AskTab({ fromTs, toTs }) {
+  const [msgs,    setMsgs   ] = useState([]);
+  const [input,   setInput  ] = useState("");
+  const [busy,    setBusy   ] = useState(false);
+  const [err,     setErr    ] = useState(null);
+  const endRef = useRef(null);
+
+  useEffect(()=>{ endRef.current?.scrollIntoView({ behavior:"smooth" }); }, [msgs, busy]);
+
+  const send = async (text) => {
+    const q = (text ?? input).trim();
+    if (!q || busy) return;
+    setErr(null);
+    const next = [...msgs, { role:"user", content:q }];
+    setMsgs(next); setInput(""); setBusy(true);
+    try {
+      const r = await fetch("/api/ask", {
+        method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ question:q, history:msgs, fromTs, toTs }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.answer) {
+        setErr(d.error === "ANTHROPIC_API_KEY not configured"
+          ? "Not set up yet — add an ANTHROPIC_API_KEY in Vercel to turn this on."
+          : "Couldn't get an answer. Try again in a moment.");
+      } else {
+        setMsgs(m => [...m, { role:"assistant", content:d.answer }]);
+      }
+    } catch {
+      setErr("Couldn't reach the server. Check your connection and try again.");
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div style={{ marginBottom:18 }}>
+      {msgs.length === 0 && (
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:13, color:C.textMd, fontWeight:600, lineHeight:1.5, marginBottom:12 }}>
+            Ask anything about Hudson's glucose or site data — answers come from the actual readings.
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            {ASK_SUGGESTIONS.map(q=>(
+              <button key={q} type="button" onClick={()=>send(q)}
+                style={{ textAlign:"left", background:C.tile, border:"none", borderRadius:12,
+                  padding:"11px 14px", fontSize:13, fontWeight:600, color:C.textDk,
+                  cursor:"pointer", fontFamily:"inherit" }}>
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {msgs.map((m,i)=>(
+        <div key={i} style={{ display:"flex",
+          justifyContent: m.role==="user" ? "flex-end" : "flex-start", marginBottom:8 }}>
+          <div style={{ maxWidth:"85%", borderRadius:14, padding:"10px 14px",
+            fontSize:13, lineHeight:1.5, whiteSpace:"pre-wrap",
+            background: m.role==="user" ? C.textDk : C.tile,
+            color: m.role==="user" ? "#fff" : C.textDk,
+            fontWeight: m.role==="user" ? 600 : 500 }}>
+            {m.content}
+          </div>
+        </div>
+      ))}
+
+      {busy && (
+        <div style={{ display:"flex", justifyContent:"flex-start", marginBottom:8 }}>
+          <div style={{ background:C.tile, borderRadius:14, padding:"10px 16px",
+            fontSize:13, color:C.textLt, fontWeight:600 }}>
+            Looking at the data…
+          </div>
+        </div>
+      )}
+
+      {err && (
+        <div style={{ background:C.high+"11", borderRadius:12, padding:"9px 12px",
+          fontSize:12, color:C.high, fontWeight:600, marginBottom:8 }}>{err}</div>
+      )}
+
+      <div style={{ display:"flex", gap:8, marginTop:6 }}>
+        <input value={input}
+          onChange={e=>setInput(e.target.value)}
+          onKeyDown={e=>{ if(e.key==="Enter") send(); }}
+          placeholder="Ask about the data…"
+          style={{ flex:1, padding:"12px 14px", borderRadius:14, fontSize:14,
+            fontFamily:"inherit", border:"none", background:C.tile,
+            color:C.textDk, outline:"none" }}/>
+        <button type="button" onClick={()=>send()} disabled={busy || !input.trim()}
+          style={{ background:C.ravens, color:"#fff", border:"none", borderRadius:14,
+            width:46, fontSize:17, cursor: busy||!input.trim() ? "default" : "pointer",
+            opacity: busy||!input.trim() ? 0.4 : 1, fontFamily:"inherit" }}>↑</button>
+      </div>
+
+      <div style={{ fontSize:10, color:C.textLt, marginTop:10, lineHeight:1.5, textAlign:"center" }}>
+        For understanding patterns — never for dosing decisions. Confirm changes with Hudson's endo.
+      </div>
+      <div ref={endRef}/>
+    </div>
+  );
+}
 
 // ═══ Site Trends — usage, wear, and BG-by-pod-age ════════════════════════════
 function HBar({ label, count, max, color, note }) {
@@ -1047,7 +1174,7 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
 
       {/* ── Insights / Trends switch ── */}
       <div style={{ display:"flex", gap:22, marginBottom:16, alignItems:"flex-end" }}>
-        {[["insights","Insights"],["trends","Trends"]].map(([id,label])=>(
+        {[["insights","Insights"],["trends","Trends"],["ask","Ask"]].map(([id,label])=>(
           <button key={id} type="button" onClick={()=>setView(id)}
             style={{ background:"none", border:"none", padding:"0 0 4px", cursor:"pointer",
               fontFamily:"inherit", fontWeight:800, fontSize:20,
@@ -1099,6 +1226,8 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
 
 
       {view==="insights" && <InsightsGrid periodReadings={all} allReadings={merged} periodLabel={periodLabel} mealWindows={mealWindows}/>}
+
+      {view==="ask" && <AskTab fromTs={fromTs} toTs={toTs}/>}
 
       {view==="trends" && (<>
       {/* Header row */}
