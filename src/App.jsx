@@ -487,7 +487,8 @@ function BGChart({ live, store }) {
         ))}
       </svg>
       <div style={{ fontSize:9, color:C.textLt, marginTop:2 }}>
-        CGM data by Dexcom · drag to scroll
+        CGM data by Dexcom · drag to scroll · {(store||[]).length.toLocaleString()} stored
+        {(store||[]).length>0 && ` back to ${new Date(data[0].ts).toLocaleDateString("en-US",{month:"short",day:"numeric"})}`}
       </div>
     </div>
   );
@@ -687,6 +688,10 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
   const fromTs = useCustom ? fromDateInputVal(customFrom) : Date.now() - period*24*60*60*1000;
   const toTs   = useCustom ? fromDateInputVal(customTo) + 86400000 : Date.now();
 
+  // Keep the date inputs showing the active preset window, not a stale range.
+  const shownFrom = useCustom ? customFrom : toDateInputVal(fromTs);
+  const shownTo   = useCustom ? customTo   : toDateInputVal(Math.min(toTs, Date.now()));
+
   const merged = (() => {
     const map = {};
     [...readings, ...(bgHistory||[])].forEach(r => { map[r.ts]=r; });
@@ -801,13 +806,13 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
         </div>
         {/* Custom date range */}
         <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-          <input type="date" value={customFrom}
+          <input type="date" value={shownFrom}
             onChange={e=>{ setCustomFrom(e.target.value); setUseCustom(true); }}
             style={{ flex:1, padding:"8px 10px", borderRadius:12, fontSize:12, fontFamily:"inherit",
               border: useCustom ? `2px solid ${C.ravens}` : "2px solid transparent",
               color:C.textDk, outline:"none", background:C.tile }}/>
           <span style={{ color:C.textLt, fontSize:12, fontWeight:600 }}>to</span>
-          <input type="date" value={customTo}
+          <input type="date" value={shownTo}
             onChange={e=>{ setCustomTo(e.target.value); setUseCustom(true); }}
             style={{ flex:1, padding:"8px 10px", borderRadius:12, fontSize:12, fontFamily:"inherit",
               border: useCustom ? `2px solid ${C.ravens}` : "2px solid transparent",
