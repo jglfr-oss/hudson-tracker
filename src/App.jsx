@@ -200,59 +200,62 @@ function computeStats(readings, mealWindows) {
   return { avg, tirPct, lowPct, highPct, a1c, byWindow, dayAvgs, total:readings.length };
 }
 
-// Sugarmate-style insight metrics, computed over fixed windows regardless of
-// the selected Trends period.
-function computeInsights(readings) {
-  if (!readings || readings.length === 0) return null;
+// Insight metrics. Longer-horizon tiles follow the selected period; the
+// "right now" tiles (3h / 24h) always reflect the most recent data.
+function computeInsights(periodReadings, allReadings) {
+  const P = periodReadings || [];
+  const A = allReadings || [];
+  if (P.length === 0 && A.length === 0) return null;
+
   const now = Date.now();
-  const DAY = 86400000;
-  const inWin  = ms => readings.filter(r => now - r.ts <= ms);
+  const recent  = ms => A.filter(r => now - r.ts <= ms);
   const inHours = (list, h1, h2) => list.filter(r => { const h = new Date(r.ts).getHours(); return h >= h1 && h <= h2; });
-  const avg = list => list.length ? Math.round(list.reduce((a,b)=>a+b.value,0)/list.length) : null;
+  const mean = list => list.length ? list.reduce((a,b)=>a+b.value,0)/list.length : null;
+  const avg  = list => { const m = mean(list); return m === null ? null : Math.round(m); };
 
-  const d3  = inWin(3*DAY), d7 = inWin(7*DAY), d90 = inWin(90*DAY);
-  const h24 = inWin(DAY),  h3 = inWin(3*3600000);
+  const h24 = recent(86400000), h3 = recent(3*3600000);
 
-  // GMI (CGM-standard): 3.31 + 0.02392 × mean glucose
-  const mean90 = d90.length ? d90.reduce((a,b)=>a+b.value,0)/d90.length : null;
-  const gmi = mean90 ? (3.31 + 0.02392*mean90).toFixed(1) : null;
+  // GMI over the selected period
+  const meanP = mean(P);
+  const gmi = meanP !== null ? (3.31 + 0.02392*meanP).toFixed(1) : null;
 
-  // Std dev over 90 days
+  // Std dev over the selected period
   let sd = null;
-  if (d90.length > 1 && mean90 !== null) {
-    const v = d90.reduce((a,b)=>a+(b.value-mean90)**2,0)/d90.length;
-    sd = Math.round(Math.sqrt(v));
+  if (P.length > 1 && meanP !== null) {
+    sd = Math.round(Math.sqrt(P.reduce((a,b)=>a+(b.value-meanP)**2,0)/P.length));
   }
 
-  // Quartiles over 7 days
+  // Quartiles over the selected period
   let q = null;
-  if (d7.length >= 4) {
-    const vals = d7.map(r=>r.value).sort((a,b)=>a-b);
-    const at = p => vals[Math.min(vals.length-1, Math.floor(p*vals.length))];
+  if (P.length >= 4) {
+    const vals = P.map(r=>r.value).sort((a,b)=>a-b);
+    const at = pc => vals[Math.min(vals.length-1, Math.floor(pc*vals.length))];
     q = { p25: at(0.25), p50: at(0.5), p75: at(0.75) };
   }
 
   const tir = list => {
     if (!list.length) return { inR:null, above:null, below:null };
-    const inR   = Math.round(list.filter(r=>r.value>=TARGET_LOW&&r.value<=TARGET_HIGH).length/list.length*100);
-    const above = Math.round(list.filter(r=>r.value>TARGET_HIGH).length/list.length*100);
-    const below = Math.round(list.filter(r=>r.value<TARGET_LOW).length/list.length*100);
-    return { inR, above, below };
+    return {
+      inR:   Math.round(list.filter(r=>r.value>=TARGET_LOW&&r.value<=TARGET_HIGH).length/list.length*100),
+      above: Math.round(list.filter(r=>r.value>TARGET_HIGH).length/list.length*100),
+      below: Math.round(list.filter(r=>r.value<TARGET_LOW).length/list.length*100),
+    };
   };
   const t24 = tir(h24);
 
   return {
-    bedtime3:  avg(inHours(d3, 21, 23)),
-    wakeup3:   avg(inHours(d3, 6, 8)),
+    // period-driven
+    bedtimeP:  avg(inHours(P, 21, 23)),
+    wakeupP:   avg(inHours(P, 6, 8)),
+    avgP:      avg(P),
+    gmi, sd, q,
+    highsP:    P.filter(r=>r.value>TARGET_HIGH).length,
+    lowsP:     P.filter(r=>r.value<TARGET_LOW).length,
+    unicornsP: P.filter(r=>r.value===100).length,
+    // always-recent
     avg3h:     avg(h3),
     avg24:     avg(h24),
-    gmi,
-    inR24:     t24.inR,  above24: t24.above,  below24: t24.below,
-    q,
-    sd,
-    highs7:    d7.filter(r=>r.value>TARGET_HIGH).length,
-    lows7:     d7.filter(r=>r.value<TARGET_LOW).length,
-    unicorns7: d7.filter(r=>r.value===100).length,
+    inR24:     t24.inR, above24: t24.above, below24: t24.below,
   };
 }
 
@@ -571,6 +574,9 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
     return Object.values(map).sort((a,b)=>a.ts-b.ts);
   })();
   const all = merged.filter(r => r.ts >= fromTs && r.ts <= toTs);
+  const periodLabel = useCustom
+    ? `${new Date(fromTs).toLocaleDateString("en-US",{month:"short",day:"numeric"})}–${new Date(Math.min(toTs,Date.now())).toLocaleDateString("en-US",{month:"short",day:"numeric"})}`
+    : `${period} days`;
 
   const stats = computeStats(all, mealWindows);
   const fmtH = h => h===0?"12am":h<12?`${h}am`:h===12?"12pm":`${h-12}pm`;
@@ -656,9 +662,6 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
         ))}
       </div>
 
-      {view==="insights" && <InsightsGrid readings={merged}/>}
-
-      {view==="trends" && (<>
       {/* Period picker */}
       <div style={{ marginBottom:14 }}>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:6, marginBottom:8 }}>
@@ -698,6 +701,10 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows }) {
         </div>
       </div>
 
+
+      {view==="insights" && <InsightsGrid periodReadings={all} allReadings={merged} periodLabel={periodLabel}/>}
+
+      {view==="trends" && (<>
       {/* Header row */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
         <div style={{ fontSize:11, color:C.textLt, fontWeight:700 }}>
@@ -845,23 +852,20 @@ function Big({ v, unit }) {
   );
 }
 
-function InsightsGrid({ readings }) {
-  const ins = computeInsights(readings);
+function InsightsGrid({ periodReadings, allReadings, periodLabel }) {
+  const ins = computeInsights(periodReadings, allReadings);
   if (!ins) return null;
+  const P = periodLabel || "period";
   return (
     <div style={{ marginBottom:18 }}>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
-        <InsightTile label="🌙 Bedtime Avg." sub="3 days"><Big v={ins.bedtime3} unit="mg/dL"/></InsightTile>
-        <InsightTile label="☀️ Wake Up Avg." sub="3 days"><Big v={ins.wakeup3} unit="mg/dL"/></InsightTile>
-        <InsightTile label="Average Glucose" sub="3 hours"><Big v={ins.avg3h} unit="mg/dL"/></InsightTile>
-        <InsightTile label="Average Glucose" sub="24 hours"><Big v={ins.avg24} unit="mg/dL"/></InsightTile>
-        <InsightTile label="GMI" sub="90 days"><Big v={ins.gmi} unit="%"/></InsightTile>
-        <InsightTile label="% In Range" sub="24 hours">
-          <div style={{ width:46, height:46, borderRadius:"50%", border:`3px solid ${C.textDk}`,
-            display:"flex", alignItems:"center", justifyContent:"center",
-            fontSize:16, fontWeight:800, color:C.textDk }}>{ins.inR24 ?? "—"}</div>
-        </InsightTile>
-        <InsightTile label="Quartiles" sub="7 days">
+        <InsightTile label="Average Glucose" sub={P}><Big v={ins.avgP} unit="mg/dL"/></InsightTile>
+        <InsightTile label="GMI" sub={P}><Big v={ins.gmi} unit="%"/></InsightTile>
+        <InsightTile label="Std. Dev." sub={P}><Big v={ins.sd !== null ? `±${ins.sd}` : null} unit="mg/dL"/></InsightTile>
+
+        <InsightTile label="🌙 Bedtime Avg." sub={P}><Big v={ins.bedtimeP} unit="mg/dL"/></InsightTile>
+        <InsightTile label="☀️ Wake Up Avg." sub={P}><Big v={ins.wakeupP} unit="mg/dL"/></InsightTile>
+        <InsightTile label="Quartiles" sub={P}>
           {ins.q ? (
             <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
               <span style={{ fontSize:12, fontWeight:600, color:C.textMd }}>{ins.q.p25}</span>
@@ -870,7 +874,23 @@ function InsightsGrid({ readings }) {
             </div>
           ) : <Big v={null}/>}
         </InsightTile>
-        <InsightTile label="Std. Dev." sub="90 days"><Big v={ins.sd !== null ? `±${ins.sd}` : null} unit="mg/dL"/></InsightTile>
+
+        <InsightTile label="Highs/Lows" sub={P}>
+          <div style={{ fontSize:18, fontWeight:800 }}>
+            <span style={{ color:C.high }}>{ins.highsP}</span>
+            <span style={{ color:C.textLt, fontWeight:600 }}> / </span>
+            <span style={{ color:C.low }}>{ins.lowsP}</span>
+          </div>
+        </InsightTile>
+        <InsightTile label="🦄 Unicorns" sub={P}><Big v={ins.unicornsP} unit="perfect 100s"/></InsightTile>
+        <InsightTile label="Average Glucose" sub="3 hours"><Big v={ins.avg3h} unit="mg/dL"/></InsightTile>
+
+        <InsightTile label="Average Glucose" sub="24 hours"><Big v={ins.avg24} unit="mg/dL"/></InsightTile>
+        <InsightTile label="% In Range" sub="24 hours">
+          <div style={{ width:46, height:46, borderRadius:"50%", border:`3px solid ${C.textDk}`,
+            display:"flex", alignItems:"center", justifyContent:"center",
+            fontSize:16, fontWeight:800, color:C.textDk }}>{ins.inR24 ?? "—"}</div>
+        </InsightTile>
         <InsightTile label="Normal Range %" sub="24 hours">
           {ins.inR24 !== null ? (
             <div style={{ display:"flex", gap:2, alignItems:"center" }}>
@@ -880,14 +900,6 @@ function InsightsGrid({ readings }) {
             </div>
           ) : <Big v={null}/>}
         </InsightTile>
-        <InsightTile label="Highs/Lows" sub="7 days">
-          <div style={{ fontSize:18, fontWeight:800, color:C.textDk }}>
-            <span style={{ color:C.high }}>{ins.highs7}</span>
-            <span style={{ color:C.textLt, fontWeight:600 }}> / </span>
-            <span style={{ color:C.low }}>{ins.lows7}</span>
-          </div>
-        </InsightTile>
-        <InsightTile label="🦄 Unicorns" sub="7 days"><Big v={ins.unicorns7} unit="perfect 100s"/></InsightTile>
       </div>
     </div>
   );
