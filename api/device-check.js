@@ -36,22 +36,18 @@ const SITE_CHOICES = {
   ],
 };
 
-// Recommend the longest-rested site for a device (never-used sites first).
+// Recommend the next site in fixed rotation order: whatever follows the most
+// recently used site in the list above (wrapping around at the end).
 function recommendSite(dev, sites) {
   const opts = SITE_CHOICES[dev] || [];
   if (opts.length === 0) return null;
-  const last = {};
-  (sites || []).forEach(x => {
-    if (x && x.device === dev && x.site && typeof x.ts === "number") {
-      if (!last[x.site] || x.ts > last[x.site]) last[x.site] = x.ts;
-    }
-  });
-  const never = opts.filter(o => !last[o]);
-  if (never.length) return { site: never[0], note: "not used yet" };
-  let best = null;
-  for (const o of opts) if (!best || last[o] < last[best]) best = o;
-  const days = Math.floor((Date.now() - last[best]) / 86400000);
-  return { site: best, note: days === 0 ? "used today" : `rested ${days}d` };
+  const used = (sites || [])
+    .filter(x => x && x.device === dev && x.site && typeof x.ts === "number")
+    .sort((a, b) => b.ts - a.ts);
+  if (used.length === 0) return { site: opts[0], note: "start of rotation" };
+  const idx = opts.indexOf(used[0].site);
+  const next = opts[(idx === -1 ? 0 : idx + 1) % opts.length];
+  return { site: next, note: "next in rotation" };
 }
 
 const LABEL     = { pod: "Pod", sensor: "G7 sensor" };
