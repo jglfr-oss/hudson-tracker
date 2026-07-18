@@ -1,0 +1,27 @@
+/*
+ * Keep every expanded floating-action-menu item the same size.
+ *
+ * App.jsx renders the four action buttons as direct children of the fixed
+ * z-index 8500 menu container. The round + / close button is the last child,
+ * so it is intentionally excluded.
+ */
+div[style*="position: fixed"][style*="z-index: 8500"]
+  > button:not(:last-child) {
+  box-sizing: border-box;
+  width: min(210px, calc(100vw - 32px)) !important;
+  height: 50px !important;
+  min-height: 50px !important;
+  padding: 0 20px !important;
+  justify-content: flex-start !important;
+}
+
+/* Give every icon the same column width so the labels line up. */
+div[style*="position: fixed"][style*="z-index: 8500"]
+  > button:not(:last-child)
+  > span:first-child {
+  display: inline-flex;
+  width: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+}
