@@ -48,6 +48,8 @@ const SITE_OPTIONS = {
   sensor: [
     "Upper arm — L", "Upper arm — R",
     "Abdomen — L", "Abdomen — R",
+    "Thigh — L", "Thigh — R",
+    "Lower back — L", "Lower back — R",
     "Upper buttock — L", "Upper buttock — R",
   ],
 };
