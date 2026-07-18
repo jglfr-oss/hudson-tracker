@@ -1051,6 +1051,7 @@ function SiteTrends({ sites, readings, fromTs, toTs }) {
 
 // ═══ Analytics Tab ═══════════════════════════════════════════════════════════
 const PRESET_PERIODS = [
+  { label:"Today", days:0 },
   { label:"7D",  days:7  },
   { label:"14D", days:14 },
   { label:"30D", days:30 },
@@ -1091,7 +1092,10 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
   }, []);
 
   // Compute date window
-  const fromTs = useCustom ? fromDateInputVal(customFrom) : Date.now() - period*24*60*60*1000;
+  const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0);
+  const fromTs = useCustom ? fromDateInputVal(customFrom)
+    : period === 0 ? todayMidnight.getTime()
+    : Date.now() - period*24*60*60*1000;
   const toTs   = useCustom ? fromDateInputVal(customTo) + 86400000 : Date.now();
 
   // Keep the date inputs showing the active preset window, not a stale range.
@@ -1106,7 +1110,7 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
   const all = merged.filter(r => r.ts >= fromTs && r.ts <= toTs);
   const periodLabel = useCustom
     ? `${new Date(fromTs).toLocaleDateString("en-US",{month:"short",day:"numeric"})}–${new Date(Math.min(toTs,Date.now())).toLocaleDateString("en-US",{month:"short",day:"numeric"})}`
-    : `${period} days`;
+    : period === 0 ? "today" : `${period} days`;
 
   const stats = computeStats(all, mealWindows);
   const fmtH = h => h===0?"12am":h<12?`${h}am`:h===12?"12pm":`${h-12}pm`;
@@ -1194,12 +1198,12 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
 
       {/* Period picker */}
       <div style={{ marginBottom:14 }}>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:6, marginBottom:8 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:5, marginBottom:8 }}>
           {PRESET_PERIODS.map(p=>(
             <button key={p.days} type="button" onClick={()=>{
               setPeriod(p.days);
               setUseCustom(false);
-              setCustomFrom(toDateInputVal(Date.now() - p.days*24*60*60*1000));
+              setCustomFrom(toDateInputVal(p.days === 0 ? Date.now() : Date.now() - p.days*24*60*60*1000));
               setCustomTo(toDateInputVal(Date.now()));
             }}
               style={{ padding:"8px 0", borderRadius:20, fontFamily:"inherit", textAlign:"center", fontWeight:800, fontSize:12,
