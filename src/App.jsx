@@ -1014,6 +1014,16 @@ function parseGlookoCSV(text) {
 function GlookoImport({ onImported }) {
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [have, setHave] = useState(null);   // what's already stored
+
+  const loadCoverage = () => {
+    fetch("/api/insulin-store").then(r => r.json()).then(d => {
+      const b = Array.isArray(d?.boluses) ? d.boluses : [];
+      if (b.length === 0) { setHave({ n: 0 }); return; }
+      setHave({ n: b.length, first: b[0].ts, last: b[b.length-1].ts });
+    }).catch(() => setHave(null));
+  };
+  useEffect(loadCoverage, []);
 
   const handleFiles = async (files) => {
     if (!files || files.length === 0) return;
@@ -1037,6 +1047,7 @@ function GlookoImport({ onImported }) {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "save failed");
       setStatus({ ok: `Imported. ${d.boluses} boluses, ${d.dailyTotals} daily totals now stored.` });
+      loadCoverage();
       onImported && onImported();
     } catch (e) {
       setStatus({ err: String(e.message || e) });
@@ -1047,9 +1058,34 @@ function GlookoImport({ onImported }) {
   return (
     <div style={{ marginTop:22 }}>
       <div style={{ fontWeight:800, fontSize:13, color:C.textDk, marginBottom:4 }}>💉 Import Glooko data</div>
+      {have && (
+        <div style={{ background:C.tile, borderRadius:12, padding:"10px 12px", marginBottom:10 }}>
+          {have.n === 0 ? (
+            <div style={{ fontSize:11, fontWeight:700, color:C.textMd }}>
+              No insulin data yet — export everything Glooko has.
+            </div>
+          ) : (() => {
+            const last = new Date(have.last);
+            const days = Math.floor((Date.now() - have.last) / 86400000);
+            const fmt = d => d.toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" });
+            return (
+              <>
+                <div style={{ fontSize:11, fontWeight:700, color:C.textDk }}>
+                  Have {have.n.toLocaleString()} boluses through {fmt(last)}
+                  {" "}({last.toLocaleTimeString([], { hour:"numeric", minute:"2-digit" })})
+                </div>
+                <div style={{ fontSize:11, fontWeight:700, color: days >= 30 ? C.low : C.textMd, marginTop:3 }}>
+                  {days === 0 ? "Up to date as of today."
+                    : `Export from ${fmt(last)} onward — ${days} day${days===1?"":"s"} missing.`}
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
       <div style={{ fontSize:11, color:C.textLt, lineHeight:1.5, marginBottom:10 }}>
         Export from Glooko web → unzip → pick <b>bolus_data_1.csv</b> and <b>insulin_data_1.csv</b>.
-        Existing records are kept; duplicates are ignored.
+        Overlapping dates are fine — duplicates are ignored.
       </div>
       <label style={{ display:"block", background:C.tile, borderRadius:12, padding:"14px 12px",
         textAlign:"center", cursor: busy ? "default" : "pointer", fontSize:13, fontWeight:700,
