@@ -202,7 +202,7 @@ function computeStats(readings, mealWindows) {
 
 // Insight metrics. Longer-horizon tiles follow the selected period; the
 // "right now" tiles (3h / 24h) always reflect the most recent data.
-function computeInsights(periodReadings, allReadings, mealWindows) {
+function computeInsights(periodReadings, allReadings, mealWindows, fromTs, toTs) {
   const P = periodReadings || [];
   const A = allReadings || [];
   if (P.length === 0 && A.length === 0) return null;
@@ -245,27 +245,34 @@ function computeInsights(periodReadings, allReadings, mealWindows) {
   const tP  = tir(P);
 
   // Overnight = hours outside the configured meal windows (same rule as Trends)
-  const overnight = P.filter(r => mealWindowFor(new Date(r.ts).getHours(), mealWindows) === "overnight");
+  const isON = r => mealWindowFor(new Date(r.ts).getHours(), mealWindows) === "overnight";
+  const overnight = P.filter(isON);
   const onHighs = overnight.filter(r => r.value > TARGET_HIGH).length;
   const onLows  = overnight.filter(r => r.value < TARGET_LOW).length;
 
-  // Trend: second half of the window vs the first half (equal spans)
-  let onHighTrend = null, onLowTrend = null, onSplit = null;
-  if (P.length > 0) {
-    const mid = (P[0].ts + P[P.length-1].ts) / 2;
-    const half = list => ({
-      h1: list.filter(r => r.ts <  mid).length,
-      h2: list.filter(r => r.ts >= mid).length,
-    });
-    const hh = half(overnight.filter(r => r.value > TARGET_HIGH));
-    const ll = half(overnight.filter(r => r.value < TARGET_LOW));
-    const dir = ({h1,h2}) => (h1===0 && h2===0) ? "flat" : h2 > h1*1.15 ? "up" : h2 < h1*0.85 ? "down" : "flat";
-    onHighTrend = dir(hh); onLowTrend = dir(ll);
-    onSplit = { high: hh, low: ll };
+  // Compare against the equal-length period immediately before this one
+  let onPrev = null;
+  if (fromTs && toTs) {
+    const span = toTs - fromTs;
+    const prev = A.filter(r => r.ts >= fromTs - span && r.ts < fromTs);
+    if (prev.length >= P.length * 0.5 && prev.length > 0) {
+      const pON = prev.filter(isON);
+      onPrev = {
+        highs: pON.filter(r => r.value > TARGET_HIGH).length,
+        lows:  pON.filter(r => r.value < TARGET_LOW).length,
+      };
+    }
   }
+  const pct = (cur, was) => {
+    if (was === null || was === undefined) return null;
+    if (was === 0) return cur === 0 ? 0 : null;
+    return Math.round(((cur - was) / was) * 100);
+  };
+  const onHighPct = onPrev ? pct(onHighs, onPrev.highs) : null;
+  const onLowPct  = onPrev ? pct(onLows,  onPrev.lows)  : null;
 
   return {
-    onHighs, onLows, onHighTrend, onLowTrend, onSplit,
+    onHighs, onLows, onPrev, onHighPct, onLowPct,
     inRP: tP.inR, aboveP: tP.above, belowP: tP.below,
     // period-driven
     bedtimeP:  avg(inHours(P, 21, 23)),
@@ -1225,7 +1232,7 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
       </div>
 
 
-      {view==="insights" && <InsightsGrid periodReadings={all} allReadings={merged} periodLabel={periodLabel} mealWindows={mealWindows}/>}
+      {view==="insights" && <InsightsGrid periodReadings={all} allReadings={merged} periodLabel={periodLabel} mealWindows={mealWindows} fromTs={fromTs} toTs={toTs}/>}
 
       {view==="ask" && <AskTab fromTs={fromTs} toTs={toTs}/>}
 
@@ -1380,8 +1387,8 @@ function Big({ v, unit }) {
   );
 }
 
-function InsightsGrid({ periodReadings, allReadings, periodLabel, mealWindows }) {
-  const ins = computeInsights(periodReadings, allReadings, mealWindows);
+function InsightsGrid({ periodReadings, allReadings, periodLabel, mealWindows, fromTs, toTs }) {
+  const ins = computeInsights(periodReadings, allReadings, mealWindows, fromTs, toTs);
   if (!ins) return null;
   const P = periodLabel || "period";
   return (
@@ -1427,31 +1434,31 @@ function InsightsGrid({ periodReadings, allReadings, periodLabel, mealWindows })
 
         <InsightTile label="🦄 Unicorns" sub={P}><Big v={ins.unicornsP} unit="perfect 100s"/></InsightTile>
         <InsightTile label="🌑 Overnight Highs" sub={P}>
-          <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
+          <div style={{ display:"flex", alignItems:"baseline", gap:7 }}>
             <span style={{ fontSize:24, fontWeight:800, color:C.high, lineHeight:1 }}>{ins.onHighs}</span>
-            {ins.onHighTrend && ins.onHighTrend!=="flat" && (
-              <span style={{ fontSize:16, fontWeight:800,
-                color: ins.onHighTrend==="up" ? C.high : C.inRange }}>
-                {ins.onHighTrend==="up" ? "↑" : "↓"}
+            {ins.onHighPct !== null && ins.onHighPct !== 0 && (
+              <span style={{ fontSize:13, fontWeight:800,
+                color: ins.onHighPct > 0 ? C.high : C.inRange }}>
+                {ins.onHighPct > 0 ? "▲" : "▼"}{Math.abs(ins.onHighPct)}%
               </span>
             )}
           </div>
           <div style={{ fontSize:9, color:C.textLt, fontWeight:600, marginTop:2 }}>
-            {ins.onSplit ? `${ins.onSplit.high.h1} → ${ins.onSplit.high.h2} (1st → 2nd half)` : "readings > "+TARGET_HIGH}
+            {ins.onPrev ? `vs ${ins.onPrev.highs} prior period` : "no prior period to compare"}
           </div>
         </InsightTile>
         <InsightTile label="🌑 Overnight Lows" sub={P}>
-          <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
+          <div style={{ display:"flex", alignItems:"baseline", gap:7 }}>
             <span style={{ fontSize:24, fontWeight:800, color:C.low, lineHeight:1 }}>{ins.onLows}</span>
-            {ins.onLowTrend && ins.onLowTrend!=="flat" && (
-              <span style={{ fontSize:16, fontWeight:800,
-                color: ins.onLowTrend==="up" ? C.high : C.inRange }}>
-                {ins.onLowTrend==="up" ? "↑" : "↓"}
+            {ins.onLowPct !== null && ins.onLowPct !== 0 && (
+              <span style={{ fontSize:13, fontWeight:800,
+                color: ins.onLowPct > 0 ? C.high : C.inRange }}>
+                {ins.onLowPct > 0 ? "▲" : "▼"}{Math.abs(ins.onLowPct)}%
               </span>
             )}
           </div>
           <div style={{ fontSize:9, color:C.textLt, fontWeight:600, marginTop:2 }}>
-            {ins.onSplit ? `${ins.onSplit.low.h1} → ${ins.onSplit.low.h2} (1st → 2nd half)` : "readings < "+TARGET_LOW}
+            {ins.onPrev ? `vs ${ins.onPrev.lows} prior period` : "no prior period to compare"}
           </div>
         </InsightTile>
       </div>
@@ -2167,7 +2174,22 @@ export default function App() {
                       <div style={{ display:"flex",alignItems:"center",gap:10 }}>
                         <span style={{ color:bgColor,fontWeight:700,fontSize:56,letterSpacing:-2.5,lineHeight:1 }}>{dex.value}</span>
                         <span style={{ color:bgColor,fontWeight:500,fontSize:32,lineHeight:1 }}>{trendArrow(dex.trend)}</span>
-                        <span style={{ color:C.textMd,fontSize:15,fontWeight:500,lineHeight:1.2 }}>mg/dL</span>
+                        {(() => {
+                          const sorted=[...history].sort((a,b)=>a.ts-b.ts);
+                          let delta=null;
+                          if (sorted.length>=2) {
+                            const lastTwo=sorted.slice(-2);
+                            delta=lastTwo[1].value-lastTwo[0].value;
+                          }
+                          return (
+                            <span style={{ display:"flex",flexDirection:"column",lineHeight:1.1 }}>
+                              <span style={{ color:C.textDk,fontSize:14,fontWeight:700,minHeight:15 }}>
+                                {delta===null?"":delta>0?`+${delta}`:`${delta}`}
+                              </span>
+                              <span style={{ color:C.textMd,fontSize:12,fontWeight:500 }}>mg/dL</span>
+                            </span>
+                          );
+                        })()}
                       </div>
                       {alert&&(
                         <div style={{ fontSize:12,fontWeight:600,color:alert.color,background:alert.color+"14",
@@ -2188,10 +2210,6 @@ export default function App() {
                 </div>
               )}
             </div>
-            <button type="button" onClick={()=>setShowSettings(true)}
-              style={{ background:C.tile,border:"none",
-                borderRadius:"50%",width:40,height:40,cursor:"pointer",fontSize:17,
-                display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,padding:0,marginLeft:12 }}>⚙️</button>
           </div>
 
           {/* 3-hr chart — hide on trends tab */}
@@ -2204,20 +2222,6 @@ export default function App() {
             </div>
           )}
 
-          {/* Today strip — hide on trends tab */}
-          {<div style={{ marginTop:12,display:"flex",gap:8 }}>
-            {[
-              { label:"Doses",         value:todayE.length||"—" },
-              { label:"Total carbs",   value:todayE.length?todayE.reduce((s,e)=>s+e.carbs,0)+"g":"—" },
-              { label:"Total insulin", value:todayE.length?todayE.reduce((s,e)=>s+e.dose,0)+"u":"—" },
-            ].map(s=>(
-              <div key={s.label} style={{ flex:1,background:C.tile,
-                borderRadius:14,padding:"12px 12px" }}>
-                <div style={{ color:C.textMd,fontSize:11,fontWeight:600 }}>{s.label}</div>
-                <div style={{ color:C.textDk,fontWeight:800,fontSize:22,marginTop:2 }}>{s.value}</div>
-              </div>
-            ))}
-          </div>}
         </div>
 
         <div style={{ padding:"0 16px" }}>
@@ -2381,12 +2385,13 @@ export default function App() {
           <div style={{ position:"fixed", left:0, right:0, bottom:26, zIndex:8500,
             display:"flex", flexDirection:"column", alignItems:"center", gap:10, pointerEvents:"none" }}>
             {fabOpen && [
+              ["settings","⚙️","Settings"],
               ["sites","📍","Log a site change"],
               ["log",  "📋","Dose history"],
               ["dose", "💉","Calculate a dose"],
             ].map(([id,icon,label])=>(
               <button key={id} type="button"
-                onClick={()=>{ setSheet(id); setFabOpen(false); }}
+                onClick={()=>{ if(id==="settings"){ setShowSettings(true); } else { setSheet(id); } setFabOpen(false); }}
                 style={{ pointerEvents:"auto", display:"flex", alignItems:"center", gap:10,
                   background:C.white, border:"none", borderRadius:26, padding:"12px 20px",
                   fontWeight:700, fontSize:15, color:C.textDk, fontFamily:"inherit",
