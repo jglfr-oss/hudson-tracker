@@ -781,7 +781,7 @@ const ASK_SUGGESTIONS = [
   "Any pattern before the overnight lows?",
 ];
 
-function AskTab({ fromTs, toTs }) {
+function AskTab() {
   const [msgs,    setMsgs   ] = useState([]);
   const [input,   setInput  ] = useState("");
   const [busy,    setBusy   ] = useState(false);
@@ -799,7 +799,7 @@ function AskTab({ fromTs, toTs }) {
     try {
       const r = await fetch("/api/ask", {
         method:"POST", headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ question:q, history:msgs, fromTs, toTs }),
+        body: JSON.stringify({ question:q, history:msgs }),
       });
       const d = await r.json();
       if (!r.ok || !d.answer) {
@@ -1196,6 +1196,7 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
         ))}
       </div>
 
+      {view!=="ask" && (<>
       {/* Period picker */}
       <div style={{ marginBottom:14 }}>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:5, marginBottom:8 }}>
@@ -1236,9 +1237,11 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
       </div>
 
 
+      </>)}
+
       {view==="insights" && <InsightsGrid periodReadings={all} allReadings={merged} periodLabel={periodLabel} mealWindows={mealWindows} fromTs={fromTs} toTs={toTs}/>}
 
-      {view==="ask" && <AskTab fromTs={fromTs} toTs={toTs}/>}
+      {view==="ask" && <AskTab/>}
 
       {view==="trends" && (<>
       {/* Header row */}
