@@ -3185,12 +3185,24 @@ export default function App() {
                   );
                 })() : dexLoading ? (
                   <div style={{ color:C.textLt,fontSize:13,fontWeight:500 }}>Connecting…</div>
-                ) : null}
+                ) : (() => {
+                  // No live reading — show the newest stored one, clearly aged,
+                  // rather than a blank header. Grey = not current.
+                  const last = history.length ? [...history].sort((a,b)=>b.ts-a.ts)[0] : null;
+                  if (!last) return <div style={{ color:C.textLt,fontSize:13,fontWeight:500 }}>Waiting for Dexcom…</div>;
+                  const ageM = Math.round((Date.now()-last.ts)/60000);
+                  return (
+                    <div style={{ display:"flex", alignItems:"baseline", gap:10 }}>
+                      <span style={{ color:"#9CA3AF",fontWeight:900,fontSize:46,letterSpacing:-1.5,lineHeight:1 }}>{last.value}</span>
+                      <span style={{ color:C.textLt,fontSize:12,fontWeight:700 }}>last reading · {ageM<60?`${ageM}m`:`${Math.round(ageM/60)}h`} ago</span>
+                    </div>
+                  );
+                })()}
               </div>
               {(
                 <div style={{ color:C.textMd, fontSize:14, marginTop:4,
                   display:"flex", alignItems:"center", gap:7 }}>
-                  <span>{liveAgeMin>0 ? `${liveAgeMin} min ago | ` : "just now | "}Hudson's data</span>
+                  <span>{dex?.value ? (liveAgeMin>0 ? `${liveAgeMin} min ago | ` : "just now | ") : ""}Hudson's data</span>
                   <svg viewBox="0 0 100 34" width="46" height="16"
                     title="I am greater than my highs and lows"
                     aria-label="I am greater than my highs and lows"
