@@ -59,22 +59,6 @@ function DevIcon({ device, size=20 }) {
   return device === "sensor" ? <SensorIcon size={size}/> : <PodIcon size={size}/>;
 }
 
-// Composite icon for the Devices menu entry: Omnipod silhouette + Dexcom G7
-// outline, side by side.
-function DevicesMenuIcon({ size=20 }) {
-  const w = Math.round(size * 44 / 24);
-  return (
-    <svg width={w} height={size} viewBox="0 0 44 24" style={{ display:"block" }} aria-hidden="true">
-      {/* Omnipod shape (filled) */}
-      <path d="M2 9.5 C2 5.4 5.6 3 10 3 C14.4 3 18 5.4 18 9.5 L18 15 C18 18.9 14.4 21 10 21 C5.6 21 2 18.9 2 15 Z"
-        fill={POD_ORANGE}/>
-      {/* Dexcom G7 outline (ring + center) */}
-      <circle cx="33" cy="12" r="8.3" fill="none" stroke={SENSOR_GREEN} strokeWidth="2.2"/>
-      <circle cx="33" cy="12" r="3.1" fill="none" stroke={SENSOR_GREEN} strokeWidth="1.9"/>
-    </svg>
-  );
-}
-
 // ═══ Device site tracking ════════════════════════════════════════════════════
 // Pods last ~3 days, G7 sensors ~10 days.
 const DEVICES = {
@@ -2208,6 +2192,19 @@ function SitesTab({ sites, onAdd, onDelete }) {
   };
 
   const daysAgo = ts => (Date.now()-ts)/86400000;
+
+  // Expiry as a wall-clock moment rather than a countdown.
+  const fmtExpiry = ts => {
+    const d = new Date(ts);
+    const time = d.toLocaleTimeString([], { hour:"numeric", minute:"2-digit" });
+    const startOf = x => { const y = new Date(x); y.setHours(0,0,0,0); return y.getTime(); };
+    const dayDiff = Math.round((startOf(d) - startOf(new Date())) / 86400000);
+    if (dayDiff === 0)  return `Today at ${time}`;
+    if (dayDiff === 1)  return `Tomorrow at ${time}`;
+    if (dayDiff === -1) return `Yesterday at ${time}`;
+    const day = d.toLocaleDateString("en-US", { weekday:"short", month:"short", day:"numeric" });
+    return `${day} at ${time}`;
+  };
   const fmtAgo = ts => {
     const h = (Date.now()-ts)/3600000;
     if (h < 1)  return "just now";
@@ -2237,11 +2234,8 @@ function SitesTab({ sites, onAdd, onDelete }) {
                 <div style={{ display:"flex", alignItems:"baseline", gap:8, marginLeft:"auto" }}>
                   <span style={{ fontSize:11, color:C.textMd, fontWeight:600 }}>{cur.site}</span>
                   <span style={{ fontSize:10, color:C.textLt }}>{fmtAgo(cur.ts)}</span>
-                  <span style={{ fontSize:16, fontWeight:900, color:col, lineHeight:1 }}>
-                    {overdue ? "Due" : `${Math.max(0,left).toFixed(1)}d`}
-                  </span>
-                  <span style={{ fontSize:10, color:C.textLt, fontWeight:700 }}>
-                    {overdue ? "change now" : "left"}
+                  <span style={{ fontSize:13, fontWeight:800, color:col, lineHeight:1.2 }}>
+                    {overdue ? "Change now" : fmtExpiry(cur.ts + dev.wearDays*86400000)}
                   </span>
                 </div>
               ) : (
@@ -2751,10 +2745,7 @@ export default function App() {
           </Sheet>)}
 
           {/* ══ SITES ══ */}
-          {sheet==="sites"&&(<Sheet
-            title={<span style={{ display:"flex", alignItems:"center", gap:9 }}>
-              <DevicesMenuIcon size={21}/>Device Management</span>}
-            onClose={()=>setSheet(null)}>
+          {sheet==="sites"&&(<Sheet title="📍 Device Management" onClose={()=>setSheet(null)}>
             <SitesTab sites={sites} onAdd={addSite} onDelete={removeSite}/>
           </Sheet>)}
 
@@ -2778,7 +2769,7 @@ export default function App() {
             opacity: fabHidden && !fabOpen ? 0 : 1,
             transition:"transform .25s ease, opacity .25s ease" }}>
             {fabOpen && [
-              ["sites", <DevicesMenuIcon size={20}/>, "Devices"],
+              ["sites","📍","Devices"],
               ["settings","⚙️","Settings"],
               ["log",  "📋","Dose history"],
               ["dose", "💉","Calculate a dose"],
