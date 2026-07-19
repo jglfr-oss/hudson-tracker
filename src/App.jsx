@@ -2770,6 +2770,12 @@ export default function App() {
   const [dexError,     setDexError    ] = useState(null);
   const [history,      setHistory     ] = useState([]);
   const [storeAll,     setStoreAll    ] = useState([]);
+  const [nowTick,      setNowTick     ] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 20000);
+    return () => clearInterval(t);
+  }, []);
+  const liveAgeMin = dex?.timestamp ? Math.max(0, Math.round((nowTick - dex.timestamp)/60000)) : dex?.ageMinutes;
   const [insulin,      setInsulin     ] = useState({ boluses:[], dailyTotals:[] });
   const pollRef      = useRef();
   const lastAlertRef = useRef(null);
@@ -2861,9 +2867,27 @@ export default function App() {
     };
 
     tick();
-    const onVis = ()=>{ if(document.visibilityState==="visible") { retries=0; tick(); } };
+    // iOS resumes a PWA through several paths (visibilitychange, focus,
+    // pageshow-from-bfcache) and not all of them fire every time. Listen to
+    // all three; a 4s guard stops the same resume from triggering 3 fetches.
+    let lastKick = 0;
+    const kick = () => {
+      const now = Date.now();
+      if (now - lastKick < 4000) return;
+      lastKick = now;
+      retries = 0;
+      tick();
+    };
+    const onVis = ()=>{ if(document.visibilityState==="visible") kick(); };
+    window.addEventListener("focus", kick);
+    window.addEventListener("pageshow", kick);
     document.addEventListener("visibilitychange", onVis);
-    return ()=>{ clearTimeout(pollRef.current); document.removeEventListener("visibilitychange", onVis); };
+    return ()=>{
+      clearTimeout(pollRef.current);
+      window.removeEventListener("focus", kick);
+      window.removeEventListener("pageshow", kick);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, []);
 
   const syncSettings = (patch) => {
@@ -2986,7 +3010,7 @@ export default function App() {
               {(
                 <div style={{ color:C.textMd, fontSize:14, marginTop:4,
                   display:"flex", alignItems:"center", gap:7 }}>
-                  <span>{dex?.ageMinutes>0 ? `${dex.ageMinutes} min ago | ` : ""}Hudson's data</span>
+                  <span>{liveAgeMin>0 ? `${liveAgeMin} min ago | ` : "just now | "}Hudson's data</span>
                   <svg viewBox="0 0 96 34" width="46" height="16"
                     title="I am greater than my highs and lows"
                     aria-label="I am greater than my highs and lows"
