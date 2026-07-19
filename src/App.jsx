@@ -2751,7 +2751,10 @@ export default function App() {
           </Sheet>)}
 
           {/* ══ SITES ══ */}
-          {sheet==="sites"&&(<Sheet title="📍 Device Management" onClose={()=>setSheet(null)}>
+          {sheet==="sites"&&(<Sheet
+            title={<span style={{ display:"flex", alignItems:"center", gap:9 }}>
+              <DevicesMenuIcon size={21}/>Device Management</span>}
+            onClose={()=>setSheet(null)}>
             <SitesTab sites={sites} onAdd={addSite} onDelete={removeSite}/>
           </Sheet>)}
 
