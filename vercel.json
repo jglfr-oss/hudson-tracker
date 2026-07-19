@@ -5,10 +5,11 @@
     { "source": "/(.*)",        "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] }
   ],
   "crons": [
-  { "path": "/api/weekly-report", "schedule": "0 10 * * 0" },
-  { "path": "/api/cron-collect",  "schedule": "*/15 * * * *" },
-  { "path": "/api/daily-status",  "schedule": "0 09 * * *" },
-  { "path": "/api/device-check",  "schedule": "*/15 * * * *" },
-  { "path": "/api/t1d-pulse-news-alert", "schedule": "0 * * * *" }
-]
+    { "path": "/api/weekly-report",                "schedule": "0 10 * * 0" },
+    { "path": "/api/cron-collect",                 "schedule": "*/15 * * * *" },
+    { "path": "/api/daily-status",                 "schedule": "0 9 * * *" },
+    { "path": "/api/daily-status?edition=evening", "schedule": "0 0 * * *" },
+    { "path": "/api/device-check",                 "schedule": "*/15 * * * *" },
+    { "path": "/api/t1d-pulse-news-alert",         "schedule": "0 * * * *" }
+  ]
 }
