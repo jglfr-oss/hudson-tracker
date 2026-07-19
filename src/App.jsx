@@ -2553,8 +2553,8 @@ export default function App() {
                   return (
                     <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
                       <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                        <span style={{ color:bgColor,fontWeight:700,fontSize:56,letterSpacing:-2.5,lineHeight:1 }}>{dex.value}</span>
-                        <span style={{ color:bgColor,fontWeight:500,fontSize:32,lineHeight:1 }}>{trendArrow(dex.trend)}</span>
+                        <span style={{ color:bgColor,fontWeight:900,fontSize:46,letterSpacing:-1.5,lineHeight:1 }}>{dex.value}</span>
+                        <span style={{ color:bgColor,fontWeight:800,fontSize:28,lineHeight:1 }}>{trendArrow(dex.trend)}</span>
                         {(() => {
                           const sorted=[...history].sort((a,b)=>a.ts-b.ts);
                           let delta=null;
@@ -2590,6 +2590,13 @@ export default function App() {
                   {dex?.ageMinutes>0 ? `${dex.ageMinutes} min ago | ` : ""}Hudson's data 🏈
                 </div>
               )}
+              <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:7,
+                fontSize:12.5, fontWeight:800, color:C.textMd, letterSpacing:0.2 }}>
+                <span>I am</span>
+                <span style={{ fontSize:20, fontWeight:900, color:C.ravens, lineHeight:0.9,
+                  fontFamily:"Georgia, 'Times New Roman', serif" }}>&gt;</span>
+                <span>my highs and lows</span>
+              </div>
             </div>
           </div>
 
