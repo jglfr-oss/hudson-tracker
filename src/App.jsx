@@ -1874,10 +1874,10 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
   return (
     <div className="slideUp">
 
-      {/* ── Insights / Trends / T1D Pulse / Ask switch ── */}
+      {/* ── Insights / Trends / News / Ask / Endo switch ── */}
       <div style={{ display:"flex", gap:18, marginBottom:16, alignItems:"flex-end",
         overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
-        {[["insights","Insights"],["trends","Trends"],["pulse","T1D Pulse"],["ask","Ask"]].map(([id,label])=>(
+        {[["insights","Insights"],["trends","Trends"],["pulse","News"],["ask","Ask"],["endo","Endo"]].map(([id,label])=>(
           <button key={id} type="button" onClick={()=>setView(id)}
             style={{ background:"none", border:"none", padding:"0 0 4px", cursor:"pointer",
               fontFamily:"inherit", fontWeight:800, fontSize:20, whiteSpace:"nowrap", flex:"0 0 auto",
@@ -1888,7 +1888,7 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
         ))}
       </div>
 
-      {view!=="ask" && view!=="pulse" && !loading && (<>
+      {view!=="ask" && view!=="pulse" && view!=="endo" && !loading && (<>
       {/* Period picker */}
       <div style={{ marginBottom:14 }}>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:5, marginBottom:8 }}>
