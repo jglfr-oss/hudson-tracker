@@ -2586,21 +2586,23 @@ export default function App() {
                 ) : null}
               </div>
               {(
-                <div style={{ color:C.textMd, fontSize:14, marginTop:4 }}>
-                  {dex?.ageMinutes>0 ? `${dex.ageMinutes} min ago | ` : ""}Hudson's data 🏈
+                <div style={{ color:C.textMd, fontSize:14, marginTop:4,
+                  display:"flex", alignItems:"center", gap:7 }}>
+                  <span>{dex?.ageMinutes>0 ? `${dex.ageMinutes} min ago | ` : ""}Hudson's data</span>
+                  <svg viewBox="0 0 96 34" width="46" height="16"
+                    title="I am greater than my highs and lows"
+                    aria-label="I am greater than my highs and lows"
+                    style={{ display:"block", flexShrink:0 }}>
+                    <g fill="none" stroke={C.ravens} strokeWidth="4.2"
+                       strokeLinecap="butt" strokeLinejoin="miter">
+                      <line x1="5" y1="6" x2="5" y2="28"/>
+                      <polyline points="18,6 31,17 18,28"/>
+                      <polyline points="42,28 54,6 66,28"/>
+                      <polyline points="68,6 80,28 92,6"/>
+                    </g>
+                  </svg>
                 </div>
               )}
-              <div style={{ marginTop:8 }} title="I am greater than my highs and lows"
-                aria-label="I am greater than my highs and lows">
-                <svg viewBox="0 0 152 40" width="146" height="38" style={{ display:"block", overflow:"visible" }}>
-                  <g fill="none" stroke={C.ravens} strokeWidth="6"
-                     strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="7" y1="9" x2="7" y2="31"/>
-                    <polyline points="22,9 36,20 22,31"/>
-                    <polyline points="50,29 64,11 78,29 92,11 106,29 120,11 134,29"/>
-                  </g>
-                </svg>
-              </div>
             </div>
           </div>
 
