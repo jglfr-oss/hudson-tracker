@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import T1DPulse from "./components/T1DPulse.jsx";
 
 // ═══ Ravens Palette ══════════════════════════════════════════════════════════
@@ -57,22 +57,6 @@ function SensorIcon({ size=20 }) {
 
 function DevIcon({ device, size=20 }) {
   return device === "sensor" ? <SensorIcon size={size}/> : <PodIcon size={size}/>;
-}
-
-// Composite icon for the Devices menu entry: Omnipod silhouette + Dexcom G7
-// outline, side by side.
-function DevicesMenuIcon({ size=20 }) {
-  const w = Math.round(size * 44 / 24);
-  return (
-    <svg width={w} height={size} viewBox="0 0 44 24" style={{ display:"block" }} aria-hidden="true">
-      {/* Omnipod shape (filled) */}
-      <path d="M2 9.5 C2 5.4 5.6 3 10 3 C14.4 3 18 5.4 18 9.5 L18 15 C18 18.9 14.4 21 10 21 C5.6 21 2 18.9 2 15 Z"
-        fill={POD_ORANGE}/>
-      {/* Dexcom G7 outline (ring + center) */}
-      <circle cx="33" cy="12" r="8.3" fill="none" stroke={SENSOR_GREEN} strokeWidth="2.2"/>
-      <circle cx="33" cy="12" r="3.1" fill="none" stroke={SENSOR_GREEN} strokeWidth="1.9"/>
-    </svg>
-  );
 }
 
 // ═══ Device site tracking ════════════════════════════════════════════════════
@@ -842,8 +826,10 @@ function HighLowTrend({ readings, rangeLow, rangeHigh, mealWindows }) {
 const ASK_SUGGESTIONS = [
   "How were overnights this week vs last week?",
   "Which day of the week runs highest?",
-  "Did going back on the pump help?",
   "Any pattern before the overnight lows?",
+  "Why does pizza make blood sugar rise late?",
+  "Which pro athletes have type 1?",
+  "How does the Omnipod know when to give insulin?",
 ];
 
 function AskTab() {
@@ -885,7 +871,7 @@ function AskTab() {
       {msgs.length === 0 && (
         <div style={{ marginBottom:14 }}>
           <div style={{ fontSize:13, color:C.textMd, fontWeight:600, lineHeight:1.5, marginBottom:12 }}>
-            Ask anything about Hudson's glucose or site data — answers come from the actual readings.
+            Ask about Hudson's data — or anything about type 1 diabetes. Data answers come from his actual readings.
           </div>
           <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
             {ASK_SUGGESTIONS.map(q=>(
@@ -917,7 +903,7 @@ function AskTab() {
         <div style={{ display:"flex", justifyContent:"flex-start", marginBottom:8 }}>
           <div style={{ background:C.tile, borderRadius:14, padding:"10px 16px",
             fontSize:13, color:C.textLt, fontWeight:600 }}>
-            Looking at the data…
+            Thinking…
           </div>
         </div>
       )}
@@ -931,7 +917,7 @@ function AskTab() {
         <input value={input}
           onChange={e=>setInput(e.target.value)}
           onKeyDown={e=>{ if(e.key==="Enter") send(); }}
-          placeholder="Ask about the data…"
+          placeholder="Ask about the data or T1D…"
           style={{ flex:1, padding:"12px 14px", borderRadius:14, fontSize:14,
             fontFamily:"inherit", border:"none", background:C.tile,
             color:C.textDk, outline:"none" }}/>
@@ -1120,6 +1106,361 @@ function GlookoImport({ onImported }) {
         <div style={{ marginTop:8, background:C.high+"12", borderRadius:10, padding:"9px 12px",
           fontSize:11, fontWeight:700, color:C.high }}>{status.err}</div>
       )}
+    </div>
+  );
+}
+
+
+// ═══ Endo Summary — 30-day clinical snapshot ═════════════════════════════════
+// Reports standard CGM metrics against international consensus targets, surfaces
+// patterns worth raising, and drafts questions. Deliberately makes NO dosing,
+// basal, or ratio recommendations — those belong to the endocrinologist.
+const CONSENSUS = {
+  tir:      { label:"Time in range 70–180",  target:">70%",  key:"tir" },
+  below70:  { label:"Below 70",              target:"<4%",   key:"below70" },
+  below54:  { label:"Below 54",              target:"<1%",   key:"below54" },
+  above180: { label:"Above 180",             target:"<25%",  key:"above180" },
+  above250: { label:"Above 250",             target:"<5%",   key:"above250" },
+};
+
+function computeEndoSummary(readings, insulin, sites, mealWindows, days = 30) {
+  const now = Date.now();
+  const from = now - days*86400000;
+  const R = (readings || []).filter(r => r && r.ts >= from);
+  if (R.length < 50) return null;
+
+  const vals = R.map(r => r.value);
+  const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
+  const sd = Math.sqrt(vals.reduce((a,v)=>a+(v-mean)**2,0)/vals.length);
+  const pct = n => Math.round((n/vals.length)*1000)/10;
+
+  // CGM coverage: 288 readings = a complete day
+  const dayKeys = new Set(R.map(r => new Date(r.ts).toDateString()));
+  const coverage = Math.round((R.length / (days*288)) * 100);
+
+  const metrics = {
+    days, n: R.length, coverage, daysWithData: dayKeys.size,
+    mean: Math.round(mean),
+    gmi: (3.31 + 0.02392*mean).toFixed(1),
+    sd: Math.round(sd),
+    cv: Math.round((sd/mean)*100),
+    tir:      pct(vals.filter(v => v>=70 && v<=180).length),
+    below70:  pct(vals.filter(v => v<70).length),
+    below54:  pct(vals.filter(v => v<54).length),
+    above180: pct(vals.filter(v => v>180).length),
+    above250: pct(vals.filter(v => v>250).length),
+  };
+
+  // Nightly nadirs, 9pm–6am, attributed to the evening the night began
+  const nights = {};
+  R.forEach(r => {
+    const d = new Date(r.ts); const h = d.getHours();
+    if (h >= 21 || h < 6) {
+      const key = new Date(r.ts - (h < 6 ? 86400000 : 0)).toDateString();
+      if (!nights[key] || r.value < nights[key].v) nights[key] = { v:r.value, ts:r.ts };
+    }
+  });
+  const nadirs = Object.entries(nights).map(([d,x]) => ({ date:d, nadir:x.v, ts:x.ts }))
+    .sort((a,b)=>a.ts-b.ts);
+  const overnight = {
+    nights: nadirs.length,
+    below70: nadirs.filter(n => n.nadir < 70).length,
+    below54: nadirs.filter(n => n.nadir < 54).length,
+    lowest: nadirs.length ? Math.min(...nadirs.map(n=>n.nadir)) : null,
+    worst: [...nadirs].sort((a,b)=>a.nadir-b.nadir).slice(0,5),
+  };
+  // Hour-of-day clustering for nadirs under 70
+  const hourCounts = {};
+  nadirs.filter(n=>n.nadir<70).forEach(n => {
+    const h = new Date(n.ts).getHours();
+    hourCounts[h] = (hourCounts[h]||0)+1;
+  });
+  const peakHours = Object.entries(hourCounts).sort((a,b)=>b[1]-a[1]).slice(0,3)
+    .map(([h,c]) => ({ hour:+h, count:c }));
+
+  // Insulin over the same window
+  const bol = (insulin?.boluses || []).filter(b => b && b.ts >= from);
+  const tot = (insulin?.dailyTotals || []).filter(t => {
+    const d = new Date(t.d+"T12:00:00").getTime(); return d >= from;
+  });
+  const avgTDD   = tot.length ? tot.reduce((a,t)=>a+(t.total||0),0)/tot.length : null;
+  const avgBasal = tot.length ? tot.reduce((a,t)=>a+(t.basal||0),0)/tot.length : null;
+  const basalPct = (avgTDD && avgBasal) ? Math.round((avgBasal/avgTDD)*100) : null;
+  const bolusDays = new Set(bol.map(b => new Date(b.ts).toDateString())).size || 1;
+
+  // Ratios the pump actually used, by meal window
+  const winRatios = {};
+  bol.forEach(b => {
+    if (!b.r) return;
+    const w = mealWindowFor(new Date(b.ts).getHours(), mealWindows);
+    (winRatios[w] = winRatios[w] || []).push(b.r);
+  });
+  const medianOf = a => { if(!a?.length) return null; const x=[...a].sort((p,q)=>p-q); return x[Math.floor(x.length/2)]; };
+
+  // Average BG by meal window
+  const winBG = {};
+  R.forEach(r => {
+    const w = mealWindowFor(new Date(r.ts).getHours(), mealWindows);
+    (winBG[w] = winBG[w] || []).push(r.value);
+  });
+  const byWindow = ["breakfast","lunch","snack","dinner","overnight"].map(w => ({
+    window: w,
+    avg: winBG[w]?.length ? Math.round(winBG[w].reduce((a,b)=>a+b,0)/winBG[w].length) : null,
+    ratio: medianOf(winRatios[w]),
+    n: winBG[w]?.length || 0,
+  }));
+
+  // Evening insulin vs overnight nadir (association only)
+  let lateBolusSplit = null;
+  if (bol.length && nadirs.length >= 8) {
+    const nightKey = ts => new Date(ts - (new Date(ts).getHours() < 6 ? 86400000 : 0)).toDateString();
+    const lateByNight = {};
+    bol.forEach(b => { const h=new Date(b.ts).getHours(); if (h>=21||h<6) lateByNight[nightKey(b.ts)] = true; });
+    const withLate = nadirs.filter(n => lateByNight[n.date]);
+    const without  = nadirs.filter(n => !lateByNight[n.date]);
+    const med = a => { if(!a.length) return null; const s=a.map(x=>x.nadir).sort((p,q)=>p-q); return s[Math.floor(s.length/2)]; };
+    if (withLate.length >= 3 && without.length >= 3) {
+      lateBolusSplit = {
+        withLate: { n: withLate.length, median: med(withLate) },
+        without:  { n: without.length,  median: med(without) },
+      };
+    }
+  }
+
+  // Devices
+  const S = (sites || []).filter(x => x && x.ts >= from);
+  const devices = ["pod","sensor"].map(d => {
+    const list = S.filter(x => x.device===d).sort((a,b)=>a.ts-b.ts);
+    const wears = [];
+    for (let i=1;i<list.length;i++) wears.push((list[i].ts-list[i-1].ts)/86400000);
+    return {
+      device: d, changes: list.length,
+      avgWear: wears.length ? (wears.reduce((a,b)=>a+b,0)/wears.length).toFixed(1) : null,
+      sites: [...new Set(list.map(x=>x.site))].length,
+    };
+  });
+
+  return { metrics, overnight, peakHours, insulin:{ avgTDD, avgBasal, basalPct,
+    bolusesPerDay: (bol.length/bolusDays).toFixed(1), n: bol.length }, byWindow, lateBolusSplit, devices };
+}
+
+
+function MetricRow({ label, value, target, met }) {
+  return (
+    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+      padding:"9px 0", borderBottom:`1px solid ${C.border}` }}>
+      <div style={{ fontSize:12.5, fontWeight:700, color:C.textDk }}>{label}</div>
+      <div style={{ display:"flex", alignItems:"baseline", gap:8 }}>
+        <span style={{ fontSize:10, color:C.textLt, fontWeight:600 }}>target {target}</span>
+        <span style={{ fontSize:15, fontWeight:800, minWidth:52, textAlign:"right",
+          color: met === null ? C.textDk : met ? C.inRange : C.high }}>{value}</span>
+      </div>
+    </div>
+  );
+}
+
+function EndoTab({ readings, insulin, sites, mealWindows }) {
+  const [copied, setCopied] = useState(false);
+  const sum = computeEndoSummary(readings, insulin, sites, mealWindows, 30);
+
+  if (!sum) return (
+    <div style={{ marginBottom:18 }}>
+      <Card><div style={{ color:C.textLt, fontSize:12.5, lineHeight:1.6 }}>
+        Not enough data in the last 30 days to build a summary yet.
+      </div></Card>
+    </div>
+  );
+
+  const { metrics: m, overnight: on, peakHours, insulin: ins, byWindow, lateBolusSplit, devices } = sum;
+  const hourLabel = h => new Date(2000,0,1,h).toLocaleTimeString([], { hour:"numeric" });
+  const WIN_LABEL = { breakfast:"Breakfast", lunch:"Lunch", snack:"Snack", dinner:"Dinner", overnight:"Overnight" };
+
+  const plainText = () => {
+    const L = [];
+    L.push(`HUDSON — 30-DAY CGM SUMMARY (${new Date().toLocaleDateString()})`);
+    L.push(`${m.n.toLocaleString()} readings · ${m.daysWithData}/${m.days} days · ${m.coverage}% CGM coverage`);
+    L.push("");
+    L.push("GLYCEMIC METRICS (vs international consensus targets)");
+    L.push(`  Average glucose   ${m.mean} mg/dL`);
+    L.push(`  GMI               ${m.gmi}%`);
+    L.push(`  Time in range     ${m.tir}%   (target >70%)`);
+    L.push(`  Below 70          ${m.below70}%  (target <4%)`);
+    L.push(`  Below 54          ${m.below54}%  (target <1%)`);
+    L.push(`  Above 180         ${m.above180}%  (target <25%)`);
+    L.push(`  Above 250         ${m.above250}%  (target <5%)`);
+    L.push(`  SD                ${m.sd} mg/dL`);
+    L.push(`  CV                ${m.cv}%  (target <36%)`);
+    L.push("");
+    L.push("OVERNIGHT (9pm–6am)");
+    L.push(`  Nights analyzed        ${on.nights}`);
+    L.push(`  Nights nadir <70       ${on.below70}`);
+    L.push(`  Nights nadir <54       ${on.below54}`);
+    L.push(`  Lowest nadir           ${on.lowest} mg/dL`);
+    if (peakHours.length) L.push(`  Lows cluster at        ${peakHours.map(p=>hourLabel(p.hour)).join(", ")}`);
+    if (on.worst.length) {
+      L.push("  Lowest nights:");
+      on.worst.forEach(w => L.push(`    ${new Date(w.ts).toLocaleDateString()} — ${w.nadir} mg/dL at ${new Date(w.ts).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}`));
+    }
+    L.push("");
+    if (ins.avgTDD) {
+      L.push("INSULIN");
+      L.push(`  Avg total daily dose   ${ins.avgTDD.toFixed(1)} U`);
+      if (ins.basalPct !== null) L.push(`  Basal / bolus split    ${ins.basalPct}% / ${100-ins.basalPct}%`);
+      L.push(`  Boluses per day        ${ins.bolusesPerDay}`);
+      L.push("");
+    }
+    L.push("BY MEAL WINDOW");
+    byWindow.filter(w=>w.avg!==null).forEach(w =>
+      L.push(`  ${WIN_LABEL[w.window].padEnd(10)} avg ${w.avg} mg/dL${w.ratio?`   pump ratio 1:${w.ratio}`:""}`));
+    L.push("");
+    if (lateBolusSplit) {
+      L.push("OBSERVATION — late boluses vs overnight nadir");
+      L.push(`  Nights with a bolus after 9pm (n=${lateBolusSplit.withLate.n}): median nadir ${lateBolusSplit.withLate.median}`);
+      L.push(`  Nights without (n=${lateBolusSplit.without.n}): median nadir ${lateBolusSplit.without.median}`);
+      L.push("  (association only — carbs and insulin move together)");
+      L.push("");
+    }
+    const dv = devices.filter(d=>d.changes>0);
+    if (dv.length) {
+      L.push("DEVICES");
+      dv.forEach(d => L.push(`  ${d.device==="pod"?"Pod":"Sensor"}: ${d.changes} changes${d.avgWear?`, avg wear ${d.avgWear}d`:""}, ${d.sites} sites used`));
+      L.push("");
+    }
+    L.push("QUESTIONS FOR THE APPOINTMENT");
+    L.push("  1. Given the overnight lows, is this basal, evening bolus tail, or both?");
+    L.push("  2. Should the overnight Target Glucose change, to what value, over which hours?");
+    L.push("  3. Do the meal ratios above match what should be programmed?");
+    L.push("  4. Any change to how we handle activity days?");
+    return L.join("\n");
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(plainText());
+      setCopied(true); setTimeout(()=>setCopied(false), 2200);
+    } catch { /* clipboard unavailable */ }
+  };
+
+  return (
+    <div style={{ marginBottom:18 }}>
+      <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+        <Btn onClick={copy} style={{ flex:1 }}>{copied ? "Copied ✓" : "Copy summary"}</Btn>
+        <Btn variant="secondary" onClick={()=>window.print()} style={{ flex:1 }}>Print</Btn>
+      </div>
+
+      <Card style={{ marginBottom:12 }}>
+        <div style={{ fontWeight:800, fontSize:15, color:C.textDk }}>Last 30 days</div>
+        <div style={{ fontSize:11, color:C.textLt, fontWeight:600, marginTop:2, marginBottom:12 }}>
+          {m.n.toLocaleString()} readings · {m.daysWithData}/{m.days} days · {m.coverage}% CGM coverage
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:14 }}>
+          {[["Avg glucose", m.mean, "mg/dL"], ["GMI", m.gmi, "%"], ["CV", m.cv, "%"]].map(([l,v,u])=>(
+            <div key={l} style={{ background:C.white, borderRadius:12, padding:"10px 12px" }}>
+              <div style={{ fontSize:10, color:C.textMd, fontWeight:600 }}>{l}</div>
+              <div style={{ fontSize:22, fontWeight:800, color:C.textDk, marginTop:2 }}>
+                {v}<span style={{ fontSize:11, color:C.textMd, fontWeight:600 }}>{u}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <MetricRow label="Time in range 70–180" value={`${m.tir}%`}      target=">70%"  met={m.tir>70}/>
+        <MetricRow label="Below 70"             value={`${m.below70}%`}  target="<4%"   met={m.below70<4}/>
+        <MetricRow label="Below 54"             value={`${m.below54}%`}  target="<1%"   met={m.below54<1}/>
+        <MetricRow label="Above 180"            value={`${m.above180}%`} target="<25%"  met={m.above180<25}/>
+        <MetricRow label="Above 250"            value={`${m.above250}%`} target="<5%"   met={m.above250<5}/>
+        <MetricRow label="Coefficient of variation" value={`${m.cv}%`}   target="<36%"  met={m.cv<36}/>
+      </Card>
+
+      <Card style={{ marginBottom:12 }}>
+        <div style={{ fontWeight:800, fontSize:15, color:C.textDk, marginBottom:2 }}>Overnight (9pm–6am)</div>
+        <div style={{ fontSize:11, color:C.textLt, fontWeight:600, marginBottom:12 }}>
+          Lowest reading each night
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:12 }}>
+          {[["Nights <70", on.below70, C.low], ["Nights <54", on.below54, C.high], ["Lowest", on.lowest, C.high]].map(([l,v,col])=>(
+            <div key={l} style={{ background:C.white, borderRadius:12, padding:"10px 12px" }}>
+              <div style={{ fontSize:10, color:C.textMd, fontWeight:600 }}>{l}</div>
+              <div style={{ fontSize:22, fontWeight:800, color:col, marginTop:2 }}>{v ?? "—"}</div>
+            </div>
+          ))}
+        </div>
+        {peakHours.length>0 && (
+          <div style={{ fontSize:12, color:C.textMd, fontWeight:700, marginBottom:10 }}>
+            Lows cluster around {peakHours.map(p=>hourLabel(p.hour)).join(", ")}
+          </div>
+        )}
+        {on.worst.map(w=>(
+          <div key={w.ts} style={{ display:"flex", justifyContent:"space-between",
+            padding:"7px 0", borderBottom:`1px solid ${C.border}`, fontSize:12 }}>
+            <span style={{ color:C.textMd, fontWeight:600 }}>
+              {new Date(w.ts).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+              {" · "}{new Date(w.ts).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
+            </span>
+            <span style={{ fontWeight:800, color: w.nadir<54 ? C.high : C.low }}>{w.nadir} mg/dL</span>
+          </div>
+        ))}
+      </Card>
+
+      {ins.avgTDD && (
+        <Card style={{ marginBottom:12 }}>
+          <div style={{ fontWeight:800, fontSize:15, color:C.textDk, marginBottom:12 }}>Insulin</div>
+          <MetricRow label="Avg total daily dose" value={`${ins.avgTDD.toFixed(1)}U`} target="—" met={null}/>
+          {ins.basalPct !== null &&
+            <MetricRow label="Basal share of TDD" value={`${ins.basalPct}%`} target="typ. 40–50%" met={null}/>}
+          <MetricRow label="Boluses per day" value={ins.bolusesPerDay} target="—" met={null}/>
+        </Card>
+      )}
+
+      <Card style={{ marginBottom:12 }}>
+        <div style={{ fontWeight:800, fontSize:15, color:C.textDk, marginBottom:12 }}>By meal window</div>
+        {byWindow.filter(w=>w.avg!==null).map(w=>(
+          <div key={w.window} style={{ display:"flex", justifyContent:"space-between",
+            padding:"8px 0", borderBottom:`1px solid ${C.border}` }}>
+            <span style={{ fontSize:12.5, fontWeight:700, color:C.textDk }}>{WIN_LABEL[w.window]}</span>
+            <span style={{ fontSize:12.5, fontWeight:700, color:C.textMd }}>
+              avg <b style={{ color:C.textDk }}>{w.avg}</b>
+              {w.ratio ? <> · pump 1:{w.ratio}</> : null}
+            </span>
+          </div>
+        ))}
+      </Card>
+
+      {lateBolusSplit && (
+        <Card style={{ marginBottom:12 }}>
+          <div style={{ fontWeight:800, fontSize:15, color:C.textDk, marginBottom:2 }}>Pattern to discuss</div>
+          <div style={{ fontSize:12.5, color:C.textMd, lineHeight:1.6, marginTop:8 }}>
+            Nights with a bolus after 9pm (n={lateBolusSplit.withLate.n}) had a median nadir of{" "}
+            <b style={{ color:C.textDk }}>{lateBolusSplit.withLate.median}</b>, versus{" "}
+            <b style={{ color:C.textDk }}>{lateBolusSplit.without.median}</b> on nights without
+            (n={lateBolusSplit.without.n}).
+          </div>
+          <div style={{ fontSize:11, color:C.textLt, marginTop:8, lineHeight:1.5 }}>
+            Association only — larger evening meals mean both more carbs and more insulin,
+            so this doesn't isolate a cause.
+          </div>
+        </Card>
+      )}
+
+      <Card style={{ marginBottom:12 }}>
+        <div style={{ fontWeight:800, fontSize:15, color:C.textDk, marginBottom:10 }}>Questions for the appointment</div>
+        {[
+          "Given the overnight lows, is this basal, evening bolus tail, or both?",
+          "Should the overnight Target Glucose change — to what value, over which hours?",
+          "Do the meal ratios above match what should be programmed?",
+          "Any change to how we handle activity days?",
+        ].map((q,i)=>(
+          <div key={i} style={{ display:"flex", gap:8, padding:"7px 0", fontSize:12.5, lineHeight:1.5 }}>
+            <span style={{ color:C.ravens, fontWeight:800 }}>{i+1}.</span>
+            <span style={{ color:C.textMd, fontWeight:600 }}>{q}</span>
+          </div>
+        ))}
+      </Card>
+
+      <div style={{ fontSize:10.5, color:C.textLt, lineHeight:1.6, textAlign:"center", padding:"0 8px 8px" }}>
+        Prepared from home CGM and pump data for discussion at an appointment.
+        Contains observations, not treatment recommendations — all dosing decisions
+        belong to Hudson's care team.
+      </div>
     </div>
   );
 }
@@ -1535,10 +1876,10 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
   return (
     <div className="slideUp">
 
-      {/* ── Insights / Trends / T1D Pulse / Ask switch ── */}
+      {/* ── Insights / Trends / News / Ask / Endo switch ── */}
       <div style={{ display:"flex", gap:18, marginBottom:16, alignItems:"flex-end",
         overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
-        {[["insights","Insights"],["trends","Trends"],["pulse","T1D Pulse"],["ask","Ask"]].map(([id,label])=>(
+        {[["insights","Insights"],["trends","Trends"],["pulse","News"],["ask","Ask"],["endo","Endo"],["games","Games"]].map(([id,label])=>(
           <button key={id} type="button" onClick={()=>setView(id)}
             style={{ background:"none", border:"none", padding:"0 0 4px", cursor:"pointer",
               fontFamily:"inherit", fontWeight:800, fontSize:20, whiteSpace:"nowrap", flex:"0 0 auto",
@@ -1549,7 +1890,7 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
         ))}
       </div>
 
-      {view!=="ask" && view!=="pulse" && !loading && (<>
+      {view!=="ask" && view!=="pulse" && view!=="endo" && view!=="games" && !loading && (<>
       {/* Period picker */}
       <div style={{ marginBottom:14 }}>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:5, marginBottom:8 }}>
@@ -1598,6 +1939,10 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
       {view==="pulse" && <T1DPulse/>}
 
       {view==="ask" && <AskTab/>}
+
+      {view==="endo" && <EndoTab readings={merged} insulin={insulin} sites={sites} mealWindows={mealWindows}/>}
+
+      {view==="games" && <GamesTab readings={merged}/>}
 
       {view==="trends" && dataNotice}
       {view==="trends" && !dataNotice && (<>
@@ -1734,10 +2079,479 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
 }
 
 // ═══ Insights grid (Sugarmate-style tiles) ═══════════════════════════════════
-function InsightTile({ label, sub, children }) {
+
+
+// ═══ Games tab ═══════════════════════════════════════════════════════════════
+// Two games built for Hudson:
+//  • Next Number — replays real moments from his own CGM history; guess where
+//    the next reading went. Trains trend-reading with instant feedback.
+//  • T1D Trivia — facts, devices, and athletes. No dosing content anywhere.
+const TRIVIA = [
+  // ── Athletes & famous people ──
+  { q:"Which Ravens tight end plays in the NFL with type 1 diabetes?", a:["Mark Andrews","Travis Kelce","George Kittle","Rob Gronkowski"], c:0,
+    fun:"#89 was diagnosed at age 9 — he checks his CGM on the sideline during games." },
+  { q:"Which Olympic swimmer with T1D won gold AFTER his diagnosis?", a:["Gary Hall Jr.","Michael Phelps","Ryan Lochte","Caeleb Dressel"], c:0,
+    fun:"Gary Hall Jr. won 10 Olympic medals total — doctors told him to quit swimming. He didn't." },
+  { q:"Which IndyCar driver races at 230+ mph with T1D?", a:["Conor Daly","Lewis Hamilton","Max Verstappen","Kyle Busch"], c:0,
+    fun:"Conor Daly was diagnosed at 14 and races with his CGM data on the car's dash." },
+  { q:"Which NBA player was a top-3 draft pick while managing T1D?", a:["Adam Morrison","LeBron James","Steph Curry","Luka Dončić"], c:0,
+    fun:"Adam Morrison went #3 overall in 2006 and led college basketball in scoring with T1D." },
+  { q:"Which NHL star with T1D has a diabetic alert dog named Orion?", a:["Max Domi","Sidney Crosby","Connor McDavid","Alex Ovechkin"], c:0,
+    fun:"Max Domi wrote a whole book about playing pro hockey with T1D." },
+  { q:"Which US Men's National Team soccer player has T1D?", a:["Jordan Morris","Christian Pulisic","Landon Donovan","Clint Dempsey"], c:0,
+    fun:"Jordan Morris has scored for the USMNT and won MLS Cups — pod and all." },
+  { q:"Which pop star was diagnosed with T1D at 13 and co-founded Beyond Type 1?", a:["Nick Jonas","Justin Bieber","Harry Styles","Shawn Mendes"], c:0,
+    fun:"Nick Jonas has performed sold-out world tours since his diagnosis in 2005." },
+  { q:"Which US Supreme Court Justice has lived with T1D since age 7?", a:["Sonia Sotomayor","Ruth Bader Ginsburg","John Roberts","Elena Kagan"], c:0,
+    fun:"Justice Sotomayor gave herself insulin shots starting in elementary school." },
+  { q:"Which UK Prime Minister led a country while managing T1D?", a:["Theresa May","Margaret Thatcher","Tony Blair","Winston Churchill"], c:0,
+    fun:"Theresa May was diagnosed as an adult and ran the UK wearing a CGM." },
+  { q:"Which Olympic cross-country skier competed in FOUR Olympics with T1D?", a:["Kris Freeman","Bode Miller","Shaun White","Apolo Ohno"], c:0,
+    fun:"Kris Freeman raced some of the most grueling endurance events in sports — with a pump." },
+  { q:"Which NFL quarterback kept playing after a T1D diagnosis in 2008?", a:["Jay Cutler","Tom Brady","Peyton Manning","Aaron Rodgers"], c:0,
+    fun:"Jay Cutler was diagnosed mid-career and played another decade in the NFL." },
+  { q:"Which Real Madrid defender has won Champions League titles with T1D?", a:["Nacho Fernández","Sergio Ramos","Gerard Piqué","Virgil van Dijk"], c:0,
+    fun:"Nacho was told at 12 he might not play again. He captained Real Madrid instead." },
+  { q:"Which WNBA player was a top-3 pick with T1D?", a:["Lauren Cox","Diana Taurasi","Sue Bird","Brittney Griner"], c:0,
+    fun:"Lauren Cox starred at Baylor and went #3 in the 2020 WNBA draft." },
+  { q:"Which MLB outfielder with T1D later became a team executive?", a:["Sam Fuld","Derek Jeter","Mike Trout","Bryce Harper"], c:0,
+    fun:"Sam Fuld was famous for diving catches — and ran youth sports camps for kids with T1D." },
+  { q:"Which musher finished the 1,000-mile Iditarod sled dog race with T1D?", a:["Bruce Linton","Balto","Togo","Jack London"], c:0,
+    fun:"Bruce Linton checked his BG at -40°F across Alaska. Your walk to school is easier." },
+  { q:"Has anyone with T1D climbed Mount Everest?", a:["Yes — multiple people","No, it's not allowed","Only halfway","Only in movies"], c:0,
+    fun:"Will Cross summited Everest in 2006 with T1D — and has trekked to both Poles too." },
+  { q:"Who was the first Miss America to wear an insulin pump on stage?", a:["Nicole Johnson","Vanessa Williams","Halle Berry","Gretchen Carlson"], c:0,
+    fun:"Nicole Johnson won Miss America 1999 and made T1D awareness her platform." },
+  { q:"Which IndyCar driver was the first licensed to race in the series with T1D?", a:["Charlie Kimball","Mario Andretti","Dale Earnhardt Jr.","Jimmie Johnson"], c:0,
+    fun:"Charlie Kimball paved the way — Conor Daly followed. T1D rides shotgun at 230 mph." },
+
+  // ── History ──
+  { q:"Insulin was discovered in 1921 in which city?", a:["Toronto, Canada","New York, USA","London, England","Paris, France"], c:0,
+    fun:"Frederick Banting and Charles Best discovered it at the University of Toronto." },
+  { q:"What did Banting sell the insulin patent for?", a:["$1","$1 million","$100,000","He kept it secret"], c:0,
+    fun:"The discoverers sold the patent to the university for $1 so everyone could afford insulin." },
+  { q:"Who was the first person ever treated with insulin, in 1922?", a:["A 14-year-old boy","A 90-year-old woman","A soldier","A doctor"], c:0,
+    fun:"Leonard Thompson was 14 — about the age T1D is often diagnosed. The shot saved his life." },
+  { q:"Before modern insulin, where did insulin come from?", a:["Cows and pigs","Chickens","Plants","The ocean"], c:0,
+    fun:"For 60 years insulin was purified from animals. Today it's made by engineered bacteria and yeast." },
+  { q:"World Diabetes Day is November 14. Why that date?", a:["Banting's birthday","First insulin shot","A president picked it","Random"], c:0,
+    fun:"It honors Frederick Banting, born Nov 14, 1891. The symbol is a blue circle." },
+  { q:"Frederick Banting won the Nobel Prize at 32. What record did that set?", a:["Youngest in Medicine ever","First Canadian ever","First surgeon ever","Most money won"], c:0,
+    fun:"Still the youngest Nobel laureate in Physiology or Medicine — for saving millions of kids." },
+  { q:"The first wearable insulin pump (1963) was the size of a…", a:["Backpack","Watch","Coin","Phone"], c:0,
+    fun:"Dr. Arnold Kadish's pump was worn like a military backpack. Your Omnipod is a bit smaller." },
+  { q:"What does the word 'diabetes mellitus' roughly mean in Greek and Latin?", a:["'Siphon' and 'honey-sweet'","'Sugar sickness'","'Tired blood'","'Sweet tooth'"], c:0,
+    fun:"Ancient doctors named it centuries before anyone knew what insulin was." },
+
+  // ── Science ──
+  { q:"What does insulin do?", a:["Helps glucose get from blood into cells","Makes food taste better","Speeds up your heart","Builds muscle directly"], c:0,
+    fun:"It's the key that unlocks cells so sugar can come in and be used for energy." },
+  { q:"What organ makes insulin in people without T1D?", a:["Pancreas","Liver","Heart","Brain"], c:0,
+    fun:"In T1D the immune system retires the pancreas's insulin cells — so tech does the job instead." },
+  { q:"Type 1 diabetes is caused by…", a:["The immune system attacking insulin cells","Eating too much sugar","Not exercising","Catching it from someone"], c:0,
+    fun:"T1D is autoimmune. Nothing Hudson ate or did caused it — that's a myth worth busting loudly." },
+  { q:"What hormone RAISES blood sugar (the opposite of insulin)?", a:["Glucagon","Adrenaline only","Melatonin","Vitamin D"], c:0,
+    fun:"Glucagon tells the liver to release stored sugar. It's also the emergency low treatment." },
+  { q:"Where does your body store extra glucose for later?", a:["The liver","The lungs","The kidneys","The feet"], c:0,
+    fun:"The liver stores it as glycogen — a sugar savings account it can release overnight." },
+  { q:"What happens to carbs during digestion?", a:["They become glucose","They become protein","They disappear","They become fat instantly"], c:0,
+    fun:"Bread, rice, fruit, milk — carbs all break down into glucose. That's why we count them." },
+  { q:"What does an A1C test measure?", a:["Average glucose over ~3 months","Today's glucose","Insulin in the blood","Heart rate"], c:0,
+    fun:"Red blood cells live about 3 months, and glucose sticks to them — so they carry the history." },
+  { q:"Why can't insulin be a pill?", a:["The stomach would digest it","It tastes too bad","Pills are too small","It would work too fast"], c:0,
+    fun:"Insulin is a protein, and stomachs digest protein like any food. So it goes under the skin." },
+  { q:"Exercise usually makes blood sugar…", a:["Go down","Go up","Stay exactly the same","Turn purple"], c:0,
+    fun:"Working muscles pull in glucose for fuel — though big-game adrenaline can spike it first!" },
+  { q:"Why does pizza famously hit blood sugar LATE?", a:["Fat slows digestion","Cheese has tons of sugar","It doesn't","Tomatoes block insulin"], c:0,
+    fun:"All that fat slows the carbs down, so the rise can show up hours later. Pizza is famous for this." },
+  { q:"Which raises blood sugar fastest?", a:["Juice","Peanut butter","Cheese","Steak"], c:0,
+    fun:"Liquids with sugar absorb quickest — that's why juice is the go-to for lows." },
+  { q:"Does 'sugar-free' mean carb-free?", a:["No","Yes","Only for candy","Only for drinks"], c:0,
+    fun:"Sugar-free cookies still have flour — and flour is carbs. Always check total carbohydrate." },
+  { q:"What does fiber do to glucose from food?", a:["Slows it down","Speeds it up","Doubles it","Nothing"], c:0,
+    fun:"Fiber is the speed bump of digestion — an apple hits slower than apple juice." },
+  { q:"Can being sick or stressed raise blood sugar?", a:["Yes","No","Only in adults","Only in winter"], c:0,
+    fun:"Stress hormones tell the liver to release sugar — the body thinks it's helping." },
+  { q:"The 'honeymoon phase' after diagnosis means…", a:["The pancreas still makes a little insulin","No more diabetes","A vacation","Sensors work better"], c:0,
+    fun:"For a while after diagnosis, some insulin cells keep working part-time. It fades, but it's real." },
+  { q:"Roughly what fraction of all diabetes is type 1?", a:["About 5–10%","About half","Almost all","About 90%"], c:0,
+    fun:"Most diabetes is type 2 — a different condition. T1D is the rarer, autoimmune one." },
+  { q:"Can people with T1D eat dessert?", a:["Yes, with planning","Never","Only sugar-free","Only on birthdays"], c:0,
+    fun:"Nothing is off the menu — carbs just get counted and covered. Cake included." },
+
+  // ── Devices & daily life ──
+  { q:"What does CGM stand for?", a:["Continuous Glucose Monitor","Carb Gram Meter","Central Glucose Machine","Counting Grams Monitor"], c:0,
+    fun:"Your Dexcom G7 reads glucose every 5 minutes — 288 times a day." },
+  { q:"A 'unicorn' in the T1D community means…", a:["A reading of exactly 100","A day with no alarms","A new sensor","A juice box"], c:0,
+    fun:"Perfectly round, perfectly in range. Rare and magical — like unicorns." },
+  { q:"Where does your Omnipod deliver insulin?", a:["Just under the skin","Into a muscle","Into a vein","Into the stomach organ"], c:0,
+    fun:"The tiny cannula sits in the fatty layer under the skin — that's why sites rotate." },
+  { q:"Why rotate pod and sensor sites?", a:["So skin recovers and absorbs insulin well","It's just a rule","To use both hands","It charges the pod"], c:0,
+    fun:"Using the same spot over and over can create tough tissue that absorbs insulin poorly." },
+  { q:"About how long does a Dexcom G7 sensor last?", a:["10 days","2 days","30 days","1 year"], c:0,
+    fun:"10 days plus a 12-hour grace period — then time for a new spot." },
+  { q:"About how long is an Omnipod worn before changing?", a:["3 days","10 days","1 day","2 weeks"], c:0,
+    fun:"72 hours, plus a short grace period — which is exactly what this app nags everyone about." },
+  { q:"How long does a G7 sensor take to warm up?", a:["About 30 minutes","2 days","6 hours","No warmup"], c:0,
+    fun:"About half an hour — the older G6 took two full hours. Progress!" },
+  { q:"What does 'time in range' mean?", a:["% of readings between 70–180","Minutes of exercise","How long a sensor lasts","Days between site changes"], c:0,
+    fun:"It's the big number doctors watch — and every 5-minute reading is a chance to be in it." },
+  { q:"In pump language, a 'bolus' is…", a:["A dose for food or correction","Background insulin","A sensor error","A type of snack"], c:0,
+    fun:"Bolus = the mealtime dose. Basal = the steady background drip. Two jobs, one hormone." },
+  { q:"What makes Omnipod 5 'automated'?", a:["It adjusts insulin using Dexcom readings","It orders its own refills","It talks","It never needs changing"], c:0,
+    fun:"Every 5 minutes it reads the CGM and nudges insulin up or down. A tiny robot pancreas." },
+  { q:"A common rule for treating a low is called…", a:["The 15/15 rule","The 50/50 rule","The touchdown rule","The 5-second rule"], c:0,
+    fun:"15 grams of fast carbs, recheck in 15 minutes — the version YOUR care team teaches always wins." },
+  { q:"What's a good fast sugar for treating a low?", a:["Juice or Skittles","Peanut butter","Cheese","Beef jerky"], c:0,
+    fun:"Fast carbs raise BG quickly. Fat and protein are great foods — just too slow for a low." },
+  { q:"Diabetic alert dogs are trained to…", a:["Smell blood sugar changes","Fetch juice boxes","Read CGMs","Bark at pizza"], c:0,
+    fun:"Dogs can smell the chemical changes of highs and lows — sometimes before the CGM catches it." },
+  { q:"A closed-loop system means…", a:["Pump and CGM talk to each other","Running in circles","A sensor worn as a ring","Wi-Fi is off"], c:0,
+    fun:"CGM reads, algorithm decides, pump delivers — the loop Hudson literally wears every day." },
+  { q:"How many glucose readings does a CGM take per day?", a:["288","24","1,000","12"], c:0,
+    fun:"One every 5 minutes, all day and night. This app has collected over 25,000 of them." },
+  { q:"If a low is coming during sports, the smart move is…", a:["Pause and treat, then play","Play through it","Hide it from coach","Run faster"], c:0,
+    fun:"Even Mark Andrews steps off the field to handle a low. Treating it IS the tough move." },
+  { q:"Who should know how to help with a low at school?", a:["Teachers, nurse, and friends","Nobody","Only the principal","Only parents"], c:0,
+    fun:"The more people who know the plan, the safer and easier everything gets. It's a team sport." },
+];
+
+function nextNumberRound(readings) {
+  // A random real moment with 7 consecutive readings ≤7 min apart:
+  // six shown, one hidden. Answer = direction of the hidden one.
+  const R = readings;
+  if (!R || R.length < 40) return null;
+  const sorted = [...R].sort((a,b)=>a.ts-b.ts);
+  for (let tries=0; tries<60; tries++) {
+    const i = 6 + Math.floor(Math.random() * (sorted.length - 7));
+    const win = sorted.slice(i-6, i+1);
+    let ok = true;
+    for (let j=1; j<win.length; j++) if (win[j].ts - win[j-1].ts > 7*60000) { ok=false; break; }
+    if (!ok) continue;
+    const shown = win.slice(0,6), next = win[6];
+    const last = shown[5].value, d = next.value - last;
+    return { shown, next, answer: d >= 4 ? "up" : d <= -4 ? "down" : "steady",
+      when: new Date(next.ts) };
+  }
+  return null;
+}
+
+function GamesTab({ readings }) {
+  const [mode, setMode] = useState(null);           // null | "next" | "trivia"
+  const [scores, setScores] = useState(() => localStore.get("hud-game-scores",
+    { nextBest:0, nextStreak:0, trivBest:0, trivStreak:0 }));
+  const save = upd => { const n = { ...scores, ...upd }; setScores(n); localStore.set("hud-game-scores", n); };
+
+  // Next Number state
+  const [round, setRound] = useState(null);
+  const [picked, setPicked] = useState(null);
+  const newRound = () => { setRound(nextNumberRound(readings)); setPicked(null); };
+
+  // Trivia state
+  const [ti, setTi] = useState(0);
+  const [tPicked, setTPicked] = useState(null);
+  // No repeats: answered questions persist in localStorage; the deck is only
+  // unseen ones, with answer order shuffled per question. When every question
+  // has been answered, the pass resets and a fresh full deck begins.
+  const prepQ = (qi) => {
+    const src = TRIVIA[qi];
+    const order = [0,1,2,3].sort(()=>Math.random()-0.5);
+    return { qi, q:src.q, a:order.map(i=>src.a[i]), c:order.indexOf(src.c), fun:src.fun };
+  };
+  const buildDeck = () => {
+    let seen = localStore.get("hud-trivia-seen", []);
+    let unseen = TRIVIA.map((_,i)=>i).filter(i=>!seen.includes(i));
+    if (unseen.length === 0) { localStore.set("hud-trivia-seen", []); unseen = TRIVIA.map((_,i)=>i); }
+    return unseen.sort(()=>Math.random()-0.5).map(prepQ);
+  };
+  const [deck, setDeck] = useState(buildDeck);
+
+  const btn = (active) => ({ flex:1, padding:"12px 0", borderRadius:12, border:"none",
+    fontFamily:"inherit", fontWeight:800, fontSize:14, cursor:"pointer",
+    background: active ? C.ravens : C.tile, color: active ? "#fff" : C.textDk });
+
+  if (mode === null) return (
+    <div style={{ marginBottom:18 }}>
+      <Card style={{ marginBottom:12 }}>
+        <div style={{ fontWeight:800, fontSize:16, color:C.textDk, marginBottom:4 }}>🎮 Games</div>
+        <div style={{ fontSize:12.5, color:C.textMd, lineHeight:1.6 }}>
+          Both games use Hudson's real numbers — no pressure, all practice.
+        </div>
+      </Card>
+      <Card style={{ marginBottom:12 }} >
+        <div onClick={()=>{ setMode("next"); newRound(); }} style={{ cursor:"pointer" }}>
+          <div style={{ fontWeight:800, fontSize:15, color:C.textDk }}>📈 Next Number</div>
+          <div style={{ fontSize:12, color:C.textMd, marginTop:4, lineHeight:1.5 }}>
+            Six real readings from Hudson's history — call where the next one went.
+          </div>
+          <div style={{ fontSize:11, color:C.textLt, fontWeight:700, marginTop:8 }}>
+            Best streak: {scores.nextBest} 🔥
+          </div>
+        </div>
+      </Card>
+      <Card>
+        <div onClick={()=>{ setMode("trivia"); setTi(0); setTPicked(null); setDeck(buildDeck()); }} style={{ cursor:"pointer" }}>
+          <div style={{ fontWeight:800, fontSize:15, color:C.textDk }}>🧠 T1D Trivia</div>
+          <div style={{ fontSize:12, color:C.textMd, marginTop:4, lineHeight:1.5 }}>
+            Devices, carbs, and the athletes who play with T1D.
+          </div>
+          <div style={{ fontSize:11, color:C.textLt, fontWeight:700, marginTop:8 }}>
+            Best streak: {scores.trivBest} 🔥
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+
+  if (mode === "next") {
+    if (!round) return (
+      <Card><div style={{ fontSize:12.5, color:C.textMd }}>Not enough history yet — check back after a few days of readings.</div></Card>
+    );
+    const vals = round.shown.map(r=>r.value);
+    const min = Math.min(...vals)-10, max = Math.max(...vals)+10;
+    const X = i => 10 + i*(210/5), Y = v => 66 - ((v-min)/(max-min))*52;
+    const correct = picked !== null && picked === round.answer;
+    return (
+      <div style={{ marginBottom:18 }}>
+        <button type="button" onClick={()=>setMode(null)} style={{ border:"none", background:"none",
+          color:C.textMd, fontWeight:700, fontSize:13, cursor:"pointer", padding:0, marginBottom:10, fontFamily:"inherit" }}>← Games</button>
+        <Card style={{ marginBottom:12 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+            <div style={{ fontWeight:800, fontSize:15, color:C.textDk }}>📈 Next Number</div>
+            <div style={{ fontSize:11, color:C.textLt, fontWeight:700 }}>streak {scores.nextStreak} 🔥 · best {scores.nextBest}</div>
+          </div>
+          <div style={{ fontSize:11, color:C.textLt, fontWeight:600, marginTop:2, marginBottom:10 }}>
+            {round.when.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})} around {round.when.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
+          </div>
+          <svg viewBox="0 0 260 76" style={{ width:"100%", display:"block" }}>
+            <polyline fill="none" stroke={C.ravens} strokeWidth="2.5"
+              points={vals.map((v,i)=>`${X(i)},${Y(v)}`).join(" ")}/>
+            {vals.map((v,i)=>(
+              <g key={i}>
+                <circle cx={X(i)} cy={Y(v)} r="4" fill={C.ravens}/>
+                <text x={X(i)} y={Y(v)-9} textAnchor="middle" fontSize="10" fontWeight="800" fill={C.textDk}>{v}</text>
+              </g>
+            ))}
+            <text x="238" y={Y(vals[5])+4} fontSize="16" fontWeight="900" fill={picked?C.textDk:C.textLt}>
+              {picked ? round.next.value : "?"}
+            </text>
+          </svg>
+          <div style={{ fontSize:11.5, color:C.textMd, fontWeight:600, margin:"6px 0 12px" }}>
+            Where did the next reading go? (±3 counts as steady)
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            {[["up","⬆️ Up"],["steady","➡️ Steady"],["down","⬇️ Down"]].map(([id,label])=>(
+              <button key={id} type="button" disabled={picked!==null}
+                onClick={()=>{
+                  setPicked(id);
+                  const win = id === round.answer;
+                  const st = win ? scores.nextStreak+1 : 0;
+                  save({ nextStreak: st, nextBest: Math.max(scores.nextBest, st) });
+                }}
+                style={btn(picked===id)}>{label}</button>
+            ))}
+          </div>
+          {picked!==null && (
+            <div style={{ marginTop:12, fontSize:13, fontWeight:800,
+              color: correct ? C.inRange : C.high }}>
+              {correct ? `Nailed it! It went to ${round.next.value}. 🎯` : `It went to ${round.next.value} (${round.answer}).`}
+              <button type="button" onClick={newRound}
+                style={{ display:"block", width:"100%", marginTop:10, padding:"12px 0", borderRadius:12,
+                  border:"none", background:C.ravens, color:"#fff", fontWeight:800, fontSize:14,
+                  cursor:"pointer", fontFamily:"inherit" }}>Next round →</button>
+            </div>
+          )}
+        </Card>
+      </div>
+    );
+  }
+
+  // trivia
+  const q = deck[Math.min(ti, deck.length-1)];
+  const qNum = TRIVIA.length - deck.length + ti + 1;
+  const tCorrect = tPicked !== null && tPicked === q.c;
   return (
-    <div style={{ background:C.tile, borderRadius:14, padding:"12px 12px 13px",
-      display:"flex", flexDirection:"column", minHeight:116 }}>
+    <div style={{ marginBottom:18 }}>
+      <button type="button" onClick={()=>setMode(null)} style={{ border:"none", background:"none",
+        color:C.textMd, fontWeight:700, fontSize:13, cursor:"pointer", padding:0, marginBottom:10, fontFamily:"inherit" }}>← Games</button>
+      <Card>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:10 }}>
+          <div style={{ fontWeight:800, fontSize:15, color:C.textDk }}>🧠 T1D Trivia</div>
+          <div style={{ fontSize:11, color:C.textLt, fontWeight:700 }}>streak {scores.trivStreak} 🔥 · best {scores.trivBest}</div>
+        </div>
+        <div style={{ fontSize:10.5, color:C.textLt, fontWeight:700, marginBottom:8 }}>Question {qNum} of {TRIVIA.length} — no repeats until you've seen them all</div>
+        <div style={{ fontSize:14, fontWeight:700, color:C.textDk, lineHeight:1.5, marginBottom:12 }}>{q.q}</div>
+        {q.a.map((opt,i)=>(
+          <button key={i} type="button" disabled={tPicked!==null}
+            onClick={()=>{
+              setTPicked(i);
+              const seen = localStore.get("hud-trivia-seen", []);
+              if (!seen.includes(q.qi)) localStore.set("hud-trivia-seen", [...seen, q.qi]);
+              const win = i === q.c;
+              const st = win ? scores.trivStreak+1 : 0;
+              save({ trivStreak: st, trivBest: Math.max(scores.trivBest, st) });
+            }}
+            style={{ display:"block", width:"100%", textAlign:"left", padding:"11px 14px",
+              borderRadius:12, border:"none", fontFamily:"inherit", fontWeight:700, fontSize:13,
+              marginBottom:8, cursor: tPicked===null ? "pointer" : "default",
+              background: tPicked===null ? C.tile : i===q.c ? C.inRange : i===tPicked ? C.high : C.tile,
+              color: tPicked!==null && (i===q.c || i===tPicked) ? "#fff" : C.textDk }}>
+            {opt}
+          </button>
+        ))}
+        {tPicked!==null && (
+          <div style={{ marginTop:6 }}>
+            <div style={{ fontSize:12.5, color:C.textMd, lineHeight:1.6, background:C.tile,
+              borderRadius:10, padding:"10px 12px" }}>
+              {tCorrect ? "✅ " : ""}{q.fun}
+            </div>
+            <button type="button" onClick={()=>{
+                if (ti + 1 >= deck.length) { setDeck(buildDeck()); setTi(0); }
+                else setTi(t=>t+1);
+                setTPicked(null);
+              }}
+              style={{ display:"block", width:"100%", marginTop:10, padding:"12px 0", borderRadius:12,
+                border:"none", background:C.ravens, color:"#fff", fontWeight:800, fontSize:14,
+                cursor:"pointer", fontFamily:"inherit" }}>Next question →</button>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// ═══ Metric trend sheet ══════════════════════════════════════════════════════
+// Tap any Insights tile → that metric across every period bucket at once.
+const TREND_BUCKETS = [
+  { id:"today", label:"Today" },
+  { id:"7",  label:"7D",  days:7  },
+  { id:"14", label:"14D", days:14 },
+  { id:"30", label:"30D", days:30 },
+  { id:"60", label:"60D", days:60 },
+  { id:"90", label:"90D", days:90 },
+];
+
+const TREND_METRICS = {
+  avg:      { title:"Average Glucose",  unit:"mg/dL", kind:"single", pick: i => i.avgP },
+  gmi:      { title:"GMI",              unit:"%",     kind:"single", pick: i => i.gmi !== null ? parseFloat(i.gmi) : null },
+  sd:       { title:"Std. Dev.",        unit:"mg/dL", kind:"single", pick: i => i.sd },
+  bedtime:  { title:"🌙 Bedtime Avg.",  unit:"mg/dL", kind:"single", pick: i => i.bedtimeP },
+  wakeup:   { title:"☀️ Wake Up Avg.",  unit:"mg/dL", kind:"single", pick: i => i.wakeupP },
+  quart:    { title:"Quartiles",        unit:"mg/dL", kind:"quart",  pick: i => i.q },
+  inrange:  { title:"% In Range",       unit:"%",     kind:"single", pick: i => i.inRP },
+  tir:      { title:"Normal Range %",   unit:"",      kind:"tir",    pick: i => (i.inRP===null ? null : { below:i.belowP, inR:i.inRP, above:i.aboveP }) },
+  highlow:  { title:"Highs / Lows",     unit:"",      kind:"pair",   pick: i => ({ a:i.highsP, b:i.lowsP }) },
+  unicorns: { title:"🦄 Unicorns",      unit:"",      kind:"single", pick: i => i.unicornsP },
+  onhighs:  { title:"🌑 Overnight Highs", unit:"",    kind:"single", pick: i => i.onHighs },
+  onlows:   { title:"🌑 Overnight Lows",  unit:"",    kind:"single", pick: i => i.onLows },
+};
+
+function MetricTrendSheet({ metric, allReadings, mealWindows, onClose }) {
+  const def = TREND_METRICS[metric];
+  const rows = useMemo(() => {
+    if (!def) return [];
+    const now = Date.now();
+    const midnight = new Date(); midnight.setHours(0,0,0,0);
+    return TREND_BUCKETS.map(b => {
+      const from = b.id === "today" ? midnight.getTime() : now - b.days*86400000;
+      const P = (allReadings || []).filter(r => r && r.ts >= from);
+      const ins = P.length ? computeInsights(P, allReadings, mealWindows, from, now) : null;
+      return { ...b, v: ins ? def.pick(ins) : null, n: P.length };
+    });
+  }, [metric, allReadings, mealWindows]);
+  if (!def) return null;
+
+  const nums = rows.map(r => (def.kind === "single" ? r.v : null)).filter(v => v !== null && !isNaN(v));
+  const maxV = nums.length ? Math.max(...nums) : 1;
+  const isCount = ["highlow","unicorns","onhighs","onlows"].includes(metric);
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.35)", zIndex:80 }}/>
+      <div style={{ position:"fixed", left:0, right:0, bottom:0, zIndex:81,
+        background:C.white, borderRadius:"20px 20px 0 0", padding:"18px 18px 26px",
+        maxHeight:"75vh", overflowY:"auto", boxShadow:"0 -8px 30px rgba(0,0,0,0.18)" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+          <div style={{ fontWeight:800, fontSize:16, color:C.textDk }}>{def.title}</div>
+          <button type="button" onClick={onClose}
+            style={{ border:"none", background:C.tile, borderRadius:"50%", width:30, height:30,
+              fontSize:15, cursor:"pointer", color:C.textDk }}>✕</button>
+        </div>
+        <div style={{ fontSize:11, color:C.textLt, fontWeight:600, marginBottom:14 }}>
+          across periods{isCount ? " · totals — longer periods naturally count more" : ""}
+        </div>
+
+        {rows.map(r => (
+          <div key={r.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 0" }}>
+            <div style={{ width:44, fontSize:12, fontWeight:800, color:C.textDk, flexShrink:0 }}>{r.label}</div>
+
+            {def.kind === "single" && (
+              <>
+                <div style={{ flex:1, height:16, background:C.tile, borderRadius:8, overflow:"hidden" }}>
+                  {r.v !== null && !isNaN(r.v) && (
+                    <div style={{ width:`${Math.max(3, (r.v/maxV)*100)}%`, height:"100%",
+                      background:C.ravens, borderRadius:8, opacity:0.85 }}/>
+                  )}
+                </div>
+                <div style={{ width:70, textAlign:"right", fontSize:13, fontWeight:800, color:C.textDk, flexShrink:0 }}>
+                  {r.v ?? "—"}{r.v !== null && def.unit ? <span style={{ fontSize:9.5, color:C.textMd, fontWeight:600 }}> {def.unit}</span> : null}
+                </div>
+              </>
+            )}
+
+            {def.kind === "tir" && (
+              r.v ? (
+                <>
+                  <div style={{ flex:1, height:16, borderRadius:8, overflow:"hidden", display:"flex" }}>
+                    <div style={{ width:`${r.v.below}%`, background:C.low }}/>
+                    <div style={{ width:`${r.v.inR}%`,  background:C.inRange }}/>
+                    <div style={{ width:`${r.v.above}%`, background:C.high }}/>
+                  </div>
+                  <div style={{ width:70, textAlign:"right", fontSize:12, fontWeight:800, color:C.textDk, flexShrink:0 }}>{r.v.inR}%</div>
+                </>
+              ) : <div style={{ flex:1, fontSize:12, color:C.textLt }}>—</div>
+            )}
+
+            {def.kind === "pair" && (
+              r.v && (r.v.a + r.v.b) > 0 ? (
+                <>
+                  <div style={{ flex:1, height:16, borderRadius:8, overflow:"hidden", display:"flex", background:C.tile }}>
+                    <div style={{ width:`${(r.v.a/(r.v.a+r.v.b))*100}%`, background:C.high }}/>
+                    <div style={{ width:`${(r.v.b/(r.v.a+r.v.b))*100}%`, background:C.low }}/>
+                  </div>
+                  <div style={{ width:70, textAlign:"right", fontSize:12, fontWeight:800, flexShrink:0 }}>
+                    <span style={{ color:C.high }}>{r.v.a}</span>
+                    <span style={{ color:C.textLt }}> / </span>
+                    <span style={{ color:C.low }}>{r.v.b}</span>
+                  </div>
+                </>
+              ) : <div style={{ flex:1, fontSize:12, color:C.textLt }}>0 / 0</div>
+            )}
+
+            {def.kind === "quart" && (
+              r.v ? (
+                <div style={{ flex:1, textAlign:"right", fontSize:13, fontWeight:700, color:C.textMd }}>
+                  {r.v.p25} · <b style={{ color:C.textDk, fontSize:15 }}>{r.v.p50}</b> · {r.v.p75}
+                </div>
+              ) : <div style={{ flex:1, textAlign:"right", fontSize:12, color:C.textLt }}>—</div>
+            )}
+          </div>
+        ))}
+        <div style={{ fontSize:10, color:C.textLt, marginTop:10, textAlign:"center" }}>
+          Rolling windows ending now · tap outside to close
+        </div>
+      </div>
+    </>
+  );
+}
+
+function InsightTile({ label, sub, children, onClick }) {
+  return (
+    <div onClick={onClick} role={onClick ? "button" : undefined}
+      style={{ background:C.tile, borderRadius:14, padding:"12px 12px 13px",
+      display:"flex", flexDirection:"column", minHeight:116,
+      cursor: onClick ? "pointer" : "default",
+      WebkitTapHighlightColor:"transparent" }}>
       <div style={{ fontSize:12, fontWeight:700, color:C.textDk, lineHeight:1.25, minHeight:30 }}>{label}</div>
       <div style={{ fontSize:10, color:C.textLt, fontWeight:600, marginTop:2 }}>{sub}</div>
       <div style={{ marginTop:"auto", paddingTop:8 }}>{children}</div>
@@ -1755,19 +2569,22 @@ function Big({ v, unit }) {
 }
 
 function InsightsGrid({ periodReadings, allReadings, periodLabel, mealWindows, fromTs, toTs }) {
+  const [trend, setTrend] = useState(null);
   const ins = computeInsights(periodReadings, allReadings, mealWindows, fromTs, toTs);
   if (!ins) return null;
   const P = periodLabel || "period";
   return (
     <div style={{ marginBottom:18 }}>
+      {trend && <MetricTrendSheet metric={trend} allReadings={allReadings}
+        mealWindows={mealWindows} onClose={()=>setTrend(null)}/>}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
-        <InsightTile label="Average Glucose" sub={P}><Big v={ins.avgP} unit="mg/dL"/></InsightTile>
-        <InsightTile label="GMI" sub={P}><Big v={ins.gmi} unit="%"/></InsightTile>
-        <InsightTile label="Std. Dev." sub={P}><Big v={ins.sd !== null ? `±${ins.sd}` : null} unit="mg/dL"/></InsightTile>
+        <InsightTile label="Average Glucose" sub={P} onClick={()=>setTrend("avg")}><Big v={ins.avgP} unit="mg/dL"/></InsightTile>
+        <InsightTile label="GMI" sub={P} onClick={()=>setTrend("gmi")}><Big v={ins.gmi} unit="%"/></InsightTile>
+        <InsightTile label="Std. Dev." sub={P} onClick={()=>setTrend("sd")}><Big v={ins.sd !== null ? `±${ins.sd}` : null} unit="mg/dL"/></InsightTile>
 
-        <InsightTile label="🌙 Bedtime Avg." sub={P}><Big v={ins.bedtimeP} unit="mg/dL"/></InsightTile>
-        <InsightTile label="☀️ Wake Up Avg." sub={P}><Big v={ins.wakeupP} unit="mg/dL"/></InsightTile>
-        <InsightTile label="Quartiles" sub={P}>
+        <InsightTile label="🌙 Bedtime Avg." sub={P} onClick={()=>setTrend("bedtime")}><Big v={ins.bedtimeP} unit="mg/dL"/></InsightTile>
+        <InsightTile label="☀️ Wake Up Avg." sub={P} onClick={()=>setTrend("wakeup")}><Big v={ins.wakeupP} unit="mg/dL"/></InsightTile>
+        <InsightTile label="Quartiles" sub={P} onClick={()=>setTrend("quart")}>
           {ins.q ? (
             <div style={{ display:"flex", alignItems:"baseline", gap:5 }}>
               <span style={{ fontSize:12, fontWeight:600, color:C.textMd }}>{ins.q.p25}</span>
@@ -1777,10 +2594,10 @@ function InsightsGrid({ periodReadings, allReadings, periodLabel, mealWindows, f
           ) : <Big v={null}/>}
         </InsightTile>
 
-        <InsightTile label="% In Range" sub={P}>
+        <InsightTile label="% In Range" sub={P} onClick={()=>setTrend("inrange")}>
           <Big v={ins.inRP !== null ? `${ins.inRP}%` : null}/>
         </InsightTile>
-        <InsightTile label="Normal Range %" sub={P}>
+        <InsightTile label="Normal Range %" sub={P} onClick={()=>setTrend("tir")}>
           {ins.inRP !== null ? (
             <div style={{ display:"flex", gap:5, alignItems:"baseline" }}>
               <span style={{ fontSize:12, fontWeight:700, color:C.low }}>{ins.belowP}%</span>
@@ -1789,7 +2606,7 @@ function InsightsGrid({ periodReadings, allReadings, periodLabel, mealWindows, f
             </div>
           ) : <Big v={null}/>}
         </InsightTile>
-        <InsightTile label="Highs/Lows" sub={P}>
+        <InsightTile label="Highs/Lows" sub={P} onClick={()=>setTrend("highlow")}>
           <div style={{ fontSize:26, fontWeight:800, letterSpacing:-0.5, lineHeight:1 }}>
             <span style={{ color:C.high }}>{ins.highsP}</span>
             <span style={{ color:C.textLt, fontWeight:600 }}> / </span>
@@ -1797,8 +2614,8 @@ function InsightsGrid({ periodReadings, allReadings, periodLabel, mealWindows, f
           </div>
         </InsightTile>
 
-        <InsightTile label="🦄 Unicorns" sub={P}><Big v={ins.unicornsP} unit="perfect 100s"/></InsightTile>
-        <InsightTile label="🌑 Overnight Highs" sub={P}>
+        <InsightTile label="🦄 Unicorns" sub={P} onClick={()=>setTrend("unicorns")}><Big v={ins.unicornsP} unit="perfect 100s"/></InsightTile>
+        <InsightTile label="🌑 Overnight Highs" sub={P} onClick={()=>setTrend("onhighs")}>
           <div style={{ display:"flex", alignItems:"baseline", gap:7 }}>
             <span style={{ fontSize:26, fontWeight:800, color:C.high, lineHeight:1, letterSpacing:-0.5 }}>{ins.onHighs}</span>
             {ins.onHighPct !== null && ins.onHighPct !== 0 && (
@@ -1812,7 +2629,7 @@ function InsightsGrid({ periodReadings, allReadings, periodLabel, mealWindows, f
             {ins.onPrev ? `vs ${ins.onPrev.highs} prior period` : "no prior period to compare"}
           </div>
         </InsightTile>
-        <InsightTile label="🌑 Overnight Lows" sub={P}>
+        <InsightTile label="🌑 Overnight Lows" sub={P} onClick={()=>setTrend("onlows")}>
           <div style={{ display:"flex", alignItems:"baseline", gap:7 }}>
             <span style={{ fontSize:26, fontWeight:800, color:C.low, lineHeight:1, letterSpacing:-0.5 }}>{ins.onLows}</span>
             {ins.onLowPct !== null && ins.onLowPct !== 0 && (
@@ -2208,6 +3025,19 @@ function SitesTab({ sites, onAdd, onDelete }) {
   };
 
   const daysAgo = ts => (Date.now()-ts)/86400000;
+
+  // Expiry as a wall-clock moment rather than a countdown.
+  const fmtExpiry = ts => {
+    const d = new Date(ts);
+    const time = d.toLocaleTimeString([], { hour:"numeric", minute:"2-digit" });
+    const startOf = x => { const y = new Date(x); y.setHours(0,0,0,0); return y.getTime(); };
+    const dayDiff = Math.round((startOf(d) - startOf(new Date())) / 86400000);
+    if (dayDiff === 0)  return `Today at ${time}`;
+    if (dayDiff === 1)  return `Tomorrow at ${time}`;
+    if (dayDiff === -1) return `Yesterday at ${time}`;
+    const day = d.toLocaleDateString("en-US", { weekday:"short", month:"short", day:"numeric" });
+    return `${day} at ${time}`;
+  };
   const fmtAgo = ts => {
     const h = (Date.now()-ts)/3600000;
     if (h < 1)  return "just now";
@@ -2237,11 +3067,8 @@ function SitesTab({ sites, onAdd, onDelete }) {
                 <div style={{ display:"flex", alignItems:"baseline", gap:8, marginLeft:"auto" }}>
                   <span style={{ fontSize:11, color:C.textMd, fontWeight:600 }}>{cur.site}</span>
                   <span style={{ fontSize:10, color:C.textLt }}>{fmtAgo(cur.ts)}</span>
-                  <span style={{ fontSize:16, fontWeight:900, color:col, lineHeight:1 }}>
-                    {overdue ? "Due" : `${Math.max(0,left).toFixed(1)}d`}
-                  </span>
-                  <span style={{ fontSize:10, color:C.textLt, fontWeight:700 }}>
-                    {overdue ? "change now" : "left"}
+                  <span style={{ fontSize:13, fontWeight:800, color:col, lineHeight:1.2 }}>
+                    {overdue ? "Change now" : fmtExpiry(cur.ts + dev.wearDays*86400000)}
                   </span>
                 </div>
               ) : (
@@ -2419,6 +3246,60 @@ export default function App() {
   const [dexError,     setDexError    ] = useState(null);
   const [history,      setHistory     ] = useState([]);
   const [storeAll,     setStoreAll    ] = useState([]);
+  const [nowTick,      setNowTick     ] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 20000);
+    return () => clearInterval(t);
+  }, []);
+  const liveAgeMin = dex?.timestamp ? Math.max(0, Math.round((nowTick - dex.timestamp)/60000)) : dex?.ageMinutes;
+
+  // ── Browser tab: live BG in the favicon + title with the I>∧V mark ────────
+  // (Desktop pinned-tab glanceability; iOS home-screen PWA ignores favicons.)
+  useEffect(() => {
+    if (!dex || typeof dex.value !== "number") return;
+    const v = dex.value;
+    const stale = liveAgeMin != null && liveAgeMin >= 15;
+    const col = stale ? "#9CA3AF"
+      : v < TARGET_LOW ? C.high : v > TARGET_HIGH ? C.low : C.inRange;
+
+    document.title = `${v} ${trendArrow(dex.trend) || ""} · I>∧V`.trim();
+
+    try {
+      const c = document.createElement("canvas");
+      c.width = 64; c.height = 64;
+      const x = c.getContext("2d");
+      x.fillStyle = col;
+      // Rounded square backdrop
+      const r = 14;
+      x.beginPath();
+      x.moveTo(r,0); x.lineTo(64-r,0); x.quadraticCurveTo(64,0,64,r);
+      x.lineTo(64,64-r); x.quadraticCurveTo(64,64,64-r,64);
+      x.lineTo(r,64); x.quadraticCurveTo(0,64,0,64-r);
+      x.lineTo(0,r); x.quadraticCurveTo(0,0,r,0); x.fill();
+      x.fillStyle = "#fff";
+      x.font = `800 ${v >= 100 ? 30 : 36}px -apple-system, Arial, sans-serif`;
+      x.textAlign = "center"; x.textBaseline = "middle";
+      x.fillText(String(v), 32, 35);
+      let link = document.querySelector("link#live-favicon");
+      if (!link) {
+        link = document.createElement("link");
+        link.id = "live-favicon"; link.rel = "icon"; link.type = "image/png";
+        document.head.appendChild(link);
+      }
+      link.href = c.toDataURL("image/png");
+    } catch { /* favicon is decorative — never break the app for it */ }
+
+    // iOS home-screen icon: artwork is fixed at install, but the badge number
+    // is settable (iOS 16.4+ installed PWAs). Shows BG in the red corner badge.
+    // Cleared when stale so an old number can't pose as current.
+    try {
+      if ("setAppBadge" in navigator) {
+        if (stale) navigator.clearAppBadge?.();
+        else navigator.setAppBadge(v);
+      }
+    } catch { /* unsupported — fine */ }
+  }, [dex, liveAgeMin]);
+
   const [insulin,      setInsulin     ] = useState({ boluses:[], dailyTotals:[] });
   const pollRef      = useRef();
   const lastAlertRef = useRef(null);
@@ -2441,7 +3322,7 @@ export default function App() {
 
   // Dexcom polling + save to bg-store
   useEffect(() => {
-    const fetchDex = async () => {
+    let fetchDex = async () => {
       try {
         const [latest, hist] = await Promise.all([
           fetch("/api/dexcom").then(r=>r.json()),
@@ -2449,6 +3330,7 @@ export default function App() {
         ]);
         if (latest.error) { setDexError(latest.error); setDex(null); }
         else {
+          if (typeof latest.timestamp === "number") lastReadingTs = latest.timestamp;
           setDex(latest); setDexError(null);
           // Fire SMS alerts
           const v=latest.value, tr=latest.trend;
@@ -2467,11 +3349,69 @@ export default function App() {
       } catch { setDexError("network"); }
       finally { setDexLoading(false); }
     };
-    fetchDex();
-    pollRef.current = setInterval(fetchDex, DEXCOM_POLL_MS);
-    const onVis = ()=>{ if(document.visibilityState==="visible") fetchDex(); };
+    // ── Smart scheduling ─────────────────────────────────────────────────────
+    // Dexcom emits a reading every 5 minutes. Instead of a blind interval
+    // (average staleness ≈ 2.5 min), predict when the next reading is due from
+    // the last reading's timestamp, poll just after it, and retry briefly
+    // until it actually appears. This is how Sugarmate/xDrip stay current.
+    const READ_CYCLE = 5*60*1000;
+    const ARRIVAL_BUFFER = 20*1000;   // Share-server upload latency
+    const RETRY_MS = 25*1000;
+    let lastReadingTs = 0;
+    let retries = 0;
+
+    const schedule = (ms) => {
+      clearTimeout(pollRef.current);
+      pollRef.current = setTimeout(tick, Math.max(4000, ms));
+    };
+
+    const tick = async () => {
+      const gotNew = await fetchDex();
+      if (gotNew || lastReadingTs === 0) {
+        retries = 0;
+        const next = lastReadingTs > 0
+          ? (lastReadingTs + READ_CYCLE + ARRIVAL_BUFFER) - Date.now()
+          : DEXCOM_POLL_MS;
+        schedule(next);
+      } else if (retries < 8) {
+        retries += 1;                 // expected a reading; not there yet
+        schedule(RETRY_MS);
+      } else {
+        retries = 0;                  // sensor gap/warmup — back off
+        schedule(60*1000);
+      }
+    };
+
+    // fetchDex reports whether it saw a NEW reading
+    const origFetch = fetchDex;
+    fetchDex = async () => {
+      const before = lastReadingTs;
+      await origFetch();
+      return lastReadingTs > before;
+    };
+
+    tick();
+    // iOS resumes a PWA through several paths (visibilitychange, focus,
+    // pageshow-from-bfcache) and not all of them fire every time. Listen to
+    // all three; a 4s guard stops the same resume from triggering 3 fetches.
+    let lastKick = 0;
+    const kick = () => {
+      const now = Date.now();
+      if (now - lastKick < 4000) return;
+      lastKick = now;
+      retries = 0;
+      tick();
+    };
+    const onVis = ()=>{ if(document.visibilityState==="visible") kick(); };
+    window.addEventListener("focus", kick);
+    window.addEventListener("pageshow", kick);
     document.addEventListener("visibilitychange", onVis);
-    return ()=>{ clearInterval(pollRef.current); document.removeEventListener("visibilitychange", onVis); };
+    return ()=>{
+      clearTimeout(pollRef.current);
+      window.removeEventListener("focus", kick);
+      window.removeEventListener("pageshow", kick);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, []);
 
   const syncSettings = (patch) => {
@@ -2559,8 +3499,8 @@ export default function App() {
                   return (
                     <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
                       <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                        <span style={{ color:bgColor,fontWeight:700,fontSize:56,letterSpacing:-2.5,lineHeight:1 }}>{dex.value}</span>
-                        <span style={{ color:bgColor,fontWeight:500,fontSize:32,lineHeight:1 }}>{trendArrow(dex.trend)}</span>
+                        <span style={{ color:bgColor,fontWeight:900,fontSize:46,letterSpacing:-1.5,lineHeight:1 }}>{dex.value}</span>
+                        <span style={{ color:bgColor,fontWeight:800,fontSize:28,lineHeight:1 }}>{trendArrow(dex.trend)}</span>
                         {(() => {
                           const sorted=[...history].sort((a,b)=>a.ts-b.ts);
                           let delta=null;
@@ -2589,11 +3529,36 @@ export default function App() {
                   );
                 })() : dexLoading ? (
                   <div style={{ color:C.textLt,fontSize:13,fontWeight:500 }}>Connecting…</div>
-                ) : null}
+                ) : (() => {
+                  // No live reading — show the newest stored one, clearly aged,
+                  // rather than a blank header. Grey = not current.
+                  const last = history.length ? [...history].sort((a,b)=>b.ts-a.ts)[0] : null;
+                  if (!last) return <div style={{ color:C.textLt,fontSize:13,fontWeight:500 }}>Waiting for Dexcom…</div>;
+                  const ageM = Math.round((Date.now()-last.ts)/60000);
+                  return (
+                    <div style={{ display:"flex", alignItems:"baseline", gap:10 }}>
+                      <span style={{ color:"#9CA3AF",fontWeight:900,fontSize:46,letterSpacing:-1.5,lineHeight:1 }}>{last.value}</span>
+                      <span style={{ color:C.textLt,fontSize:12,fontWeight:700 }}>last reading · {ageM<60?`${ageM}m`:`${Math.round(ageM/60)}h`} ago</span>
+                    </div>
+                  );
+                })()}
               </div>
               {(
-                <div style={{ color:C.textMd, fontSize:14, marginTop:4 }}>
-                  {dex?.ageMinutes>0 ? `${dex.ageMinutes} min ago | ` : ""}Hudson's data 🏈
+                <div style={{ color:C.textMd, fontSize:14, marginTop:4,
+                  display:"flex", alignItems:"center", gap:7 }}>
+                  <span>{dex?.value ? (liveAgeMin>0 ? `${liveAgeMin} min ago | ` : "just now | ") : ""}Hudson's data</span>
+                  <svg viewBox="0 0 100 34" width="46" height="16"
+                    title="I am greater than my highs and lows"
+                    aria-label="I am greater than my highs and lows"
+                    style={{ display:"block", flexShrink:0 }}>
+                    <g fill="none" stroke={C.ravens} strokeWidth="4.2"
+                       strokeLinecap="butt" strokeLinejoin="miter" strokeMiterlimit="4">
+                      <line x1="6" y1="5" x2="6" y2="29"/>
+                      <polyline points="17,6.8 29,17 17,27.2"/>
+                      <polyline points="40,27 51.5,7 63,27"/>
+                      <polyline points="66,7 77.5,27 89,7"/>
+                    </g>
+                  </svg>
                 </div>
               )}
             </div>
@@ -2751,10 +3716,7 @@ export default function App() {
           </Sheet>)}
 
           {/* ══ SITES ══ */}
-          {sheet==="sites"&&(<Sheet
-            title={<span style={{ display:"flex", alignItems:"center", gap:9 }}>
-              <DevicesMenuIcon size={21}/>Device Management</span>}
-            onClose={()=>setSheet(null)}>
+          {sheet==="sites"&&(<Sheet title="📍 Device Management" onClose={()=>setSheet(null)}>
             <SitesTab sites={sites} onAdd={addSite} onDelete={removeSite}/>
           </Sheet>)}
 
@@ -2778,7 +3740,7 @@ export default function App() {
             opacity: fabHidden && !fabOpen ? 0 : 1,
             transition:"transform .25s ease, opacity .25s ease" }}>
             {fabOpen && [
-              ["sites", <DevicesMenuIcon size={20}/>, "Devices"],
+              ["sites",null,"Devices"],
               ["settings","⚙️","Settings"],
               ["log",  "📋","Dose history"],
               ["dose", "💉","Calculate a dose"],
@@ -2791,7 +3753,13 @@ export default function App() {
                   whiteSpace:"nowrap",
                   boxShadow:"0 4px 18px rgba(0,0,0,0.18)", cursor:"pointer",
                   animation:"slideUp .18s ease both" }}>
-                <span style={{ fontSize:18 }}>{icon}</span>{label}
+                {icon === null ? (
+                  <span style={{ display:"flex", alignItems:"center", gap:3 }}>
+                    <PodIcon size={17}/><SensorIcon size={17}/>
+                  </span>
+                ) : (
+                  <span style={{ fontSize:18 }}>{icon}</span>
+                )}{label}
               </button>
             ))}
             <button type="button" onClick={()=>setFabOpen(o=>!o)}
