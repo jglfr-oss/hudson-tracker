@@ -1398,7 +1398,13 @@ function fromDateInputVal(s) {
 }
 
 function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sites, insulin }) {
-  const [view,       setView    ] = useState("insights"); // insights | trends
+  // insights | trends | pulse | ask. Notification deep link: /?open=pulse
+  // lands directly on the T1D Pulse tab (App clears the query string after).
+  const [view,       setView    ] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get("open") === "pulse" ? "pulse" : "insights";
+    } catch { return "insights"; }
+  });
   const [loading,    setLoading ] = useState(true);
   const [readings,   setReadings] = useState([]);
   const [period,     setPeriod  ] = useState(7);

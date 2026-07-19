@@ -68,6 +68,21 @@ app runs fine without any of them.
 - **YouTube / X / Reddit:** simply leave their env vars unset — each adapter reports
   `not_configured` and is skipped.
 
+### New-article push alerts
+
+An hourly Vercel cron (`/api/t1d-pulse-news-alert`) diffs the current News list
+against a seen-set in KV and sends a push notification to all registered family
+devices for genuinely new articles (max 3 per run; only articles published in the
+last 48 h). Tapping the notification opens the app directly on the T1D Pulse tab.
+
+- Toggle it with the **🔔 Alerts** button in the Pulse header (family-wide setting,
+  on by default). Delivery still requires the device to have notifications enabled
+  in Settings, exactly like the existing device-change alerts.
+- The first cron run only seeds the seen-set — it never blasts a push for every
+  article already on the tab.
+- Uses the existing web-push setup (`VAPID_*` keys, `hudson-push-subs`) and the
+  same `CRON_SECRET` protection as the other cron endpoints. No new env vars.
+
 ### Cache behavior
 
 Aggregate results are cached for **~15 minutes**. The cache uses the repo's existing

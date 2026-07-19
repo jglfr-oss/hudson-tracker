@@ -74,8 +74,34 @@ export default function T1DPulse() {
   const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [visible, setVisible] = useState(INITIAL_VISIBLE);
+  const [alertsOn, setAlertsOn] = useState(null); // null = pref not loaded (hide toggle)
   const liveRef = useRef(null);
   const reqSeq = useRef(0); // ignore out-of-order / post-unmount responses
+
+  // Family-wide new-article alert preference (delivery also requires the
+  // device to have notifications enabled in Settings, like other alerts).
+  useEffect(() => {
+    fetch("/api/t1d-pulse-news-alert?pref=1")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d && typeof d.enabled === "boolean") setAlertsOn(d.enabled); })
+      .catch(() => {});
+  }, []);
+
+  const toggleAlerts = async () => {
+    if (alertsOn === null) return;
+    const next = !alertsOn;
+    setAlertsOn(next); // optimistic; revert on failure
+    try {
+      const r = await fetch("/api/t1d-pulse-news-alert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: next }),
+      });
+      if (!r.ok) setAlertsOn(!next);
+    } catch {
+      setAlertsOn(!next);
+    }
+  };
 
   const load = useCallback(async (force = false) => {
     const seq = ++reqSeq.current;
@@ -126,9 +152,29 @@ export default function T1DPulse() {
 
   return (
     <div className="slideUp" style={{ marginBottom: 20 }}>
-      {/* Header: title + refresh */}
+      {/* Header: title + alert toggle + refresh */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
         <div style={{ fontWeight: 800, color: C.textDk, fontSize: 18 }}>💓 T1D Pulse</div>
+        <div style={{ display: "flex", gap: 6 }}>
+        {alertsOn !== null && (
+          <button
+            type="button"
+            onClick={toggleAlerts}
+            aria-pressed={alertsOn}
+            aria-label={alertsOn ? "New-article alerts are on — tap to turn off" : "New-article alerts are off — tap to turn on"}
+            title={alertsOn
+              ? "Push alerts for new articles are on for the family. Tap to turn off."
+              : "Push alerts for new articles are off. Tap to turn on."}
+            style={{
+              display: "flex", alignItems: "center", gap: 5, background: C.tile, border: "none",
+              borderRadius: 20, padding: "7px 12px", fontFamily: "inherit", fontSize: 12, fontWeight: 700,
+              color: alertsOn ? C.textDk : C.textLt, cursor: "pointer",
+            }}
+          >
+            <span aria-hidden="true">{alertsOn ? "🔔" : "🔕"}</span>
+            {alertsOn ? "Alerts on" : "Alerts off"}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => load(true)}
@@ -152,6 +198,7 @@ export default function T1DPulse() {
           </span>
           Refresh
         </button>
+        </div>
       </div>
 
       {/* Updated X ago */}
