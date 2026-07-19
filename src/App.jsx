@@ -59,6 +59,22 @@ function DevIcon({ device, size=20 }) {
   return device === "sensor" ? <SensorIcon size={size}/> : <PodIcon size={size}/>;
 }
 
+// Composite icon for the Devices menu entry: Omnipod silhouette + Dexcom G7
+// outline, side by side.
+function DevicesMenuIcon({ size=20 }) {
+  const w = Math.round(size * 44 / 24);
+  return (
+    <svg width={w} height={size} viewBox="0 0 44 24" style={{ display:"block" }} aria-hidden="true">
+      {/* Omnipod shape (filled) */}
+      <path d="M2 9.5 C2 5.4 5.6 3 10 3 C14.4 3 18 5.4 18 9.5 L18 15 C18 18.9 14.4 21 10 21 C5.6 21 2 18.9 2 15 Z"
+        fill={POD_ORANGE}/>
+      {/* Dexcom G7 outline (ring + center) */}
+      <circle cx="33" cy="12" r="8.3" fill="none" stroke={SENSOR_GREEN} strokeWidth="2.2"/>
+      <circle cx="33" cy="12" r="3.1" fill="none" stroke={SENSOR_GREEN} strokeWidth="1.9"/>
+    </svg>
+  );
+}
+
 // ═══ Device site tracking ════════════════════════════════════════════════════
 // Pods last ~3 days, G7 sensors ~10 days.
 const DEVICES = {
@@ -2759,7 +2775,7 @@ export default function App() {
             opacity: fabHidden && !fabOpen ? 0 : 1,
             transition:"transform .25s ease, opacity .25s ease" }}>
             {fabOpen && [
-              ["sites","📍","Devices"],
+              ["sites", <DevicesMenuIcon size={20}/>, "Devices"],
               ["settings","⚙️","Settings"],
               ["log",  "📋","Dose history"],
               ["dose", "💉","Calculate a dose"],
