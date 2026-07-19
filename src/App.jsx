@@ -3191,16 +3191,16 @@ export default function App() {
                 <div style={{ color:C.textMd, fontSize:14, marginTop:4,
                   display:"flex", alignItems:"center", gap:7 }}>
                   <span>{liveAgeMin>0 ? `${liveAgeMin} min ago | ` : "just now | "}Hudson's data</span>
-                  <svg viewBox="0 0 96 34" width="46" height="16"
+                  <svg viewBox="0 0 100 34" width="46" height="16"
                     title="I am greater than my highs and lows"
                     aria-label="I am greater than my highs and lows"
                     style={{ display:"block", flexShrink:0 }}>
                     <g fill="none" stroke={C.ravens} strokeWidth="4.2"
-                       strokeLinecap="butt" strokeLinejoin="miter">
-                      <line x1="5" y1="6" x2="5" y2="28"/>
-                      <polyline points="18,6 31,17 18,28"/>
-                      <polyline points="42,28 54,6 66,28"/>
-                      <polyline points="68,6 80,28 92,6"/>
+                       strokeLinecap="butt" strokeLinejoin="miter" strokeMiterlimit="4">
+                      <line x1="6" y1="5" x2="6" y2="29"/>
+                      <polyline points="17,6.8 29,17 17,27.2"/>
+                      <polyline points="40,27 51.5,7 63,27"/>
+                      <polyline points="66,7 77.5,27 89,7"/>
                     </g>
                   </svg>
                 </div>
