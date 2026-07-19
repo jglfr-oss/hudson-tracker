@@ -1108,6 +1108,361 @@ function GlookoImport({ onImported }) {
   );
 }
 
+
+// ═══ Endo Summary — 30-day clinical snapshot ═════════════════════════════════
+// Reports standard CGM metrics against international consensus targets, surfaces
+// patterns worth raising, and drafts questions. Deliberately makes NO dosing,
+// basal, or ratio recommendations — those belong to the endocrinologist.
+const CONSENSUS = {
+  tir:      { label:"Time in range 70–180",  target:">70%",  key:"tir" },
+  below70:  { label:"Below 70",              target:"<4%",   key:"below70" },
+  below54:  { label:"Below 54",              target:"<1%",   key:"below54" },
+  above180: { label:"Above 180",             target:"<25%",  key:"above180" },
+  above250: { label:"Above 250",             target:"<5%",   key:"above250" },
+};
+
+function computeEndoSummary(readings, insulin, sites, mealWindows, days = 30) {
+  const now = Date.now();
+  const from = now - days*86400000;
+  const R = (readings || []).filter(r => r && r.ts >= from);
+  if (R.length < 50) return null;
+
+  const vals = R.map(r => r.value);
+  const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
+  const sd = Math.sqrt(vals.reduce((a,v)=>a+(v-mean)**2,0)/vals.length);
+  const pct = n => Math.round((n/vals.length)*1000)/10;
+
+  // CGM coverage: 288 readings = a complete day
+  const dayKeys = new Set(R.map(r => new Date(r.ts).toDateString()));
+  const coverage = Math.round((R.length / (days*288)) * 100);
+
+  const metrics = {
+    days, n: R.length, coverage, daysWithData: dayKeys.size,
+    mean: Math.round(mean),
+    gmi: (3.31 + 0.02392*mean).toFixed(1),
+    sd: Math.round(sd),
+    cv: Math.round((sd/mean)*100),
+    tir:      pct(vals.filter(v => v>=70 && v<=180).length),
+    below70:  pct(vals.filter(v => v<70).length),
+    below54:  pct(vals.filter(v => v<54).length),
+    above180: pct(vals.filter(v => v>180).length),
+    above250: pct(vals.filter(v => v>250).length),
+  };
+
+  // Nightly nadirs, 9pm–6am, attributed to the evening the night began
+  const nights = {};
+  R.forEach(r => {
+    const d = new Date(r.ts); const h = d.getHours();
+    if (h >= 21 || h < 6) {
+      const key = new Date(r.ts - (h < 6 ? 86400000 : 0)).toDateString();
+      if (!nights[key] || r.value < nights[key].v) nights[key] = { v:r.value, ts:r.ts };
+    }
+  });
+  const nadirs = Object.entries(nights).map(([d,x]) => ({ date:d, nadir:x.v, ts:x.ts }))
+    .sort((a,b)=>a.ts-b.ts);
+  const overnight = {
+    nights: nadirs.length,
+    below70: nadirs.filter(n => n.nadir < 70).length,
+    below54: nadirs.filter(n => n.nadir < 54).length,
+    lowest: nadirs.length ? Math.min(...nadirs.map(n=>n.nadir)) : null,
+    worst: [...nadirs].sort((a,b)=>a.nadir-b.nadir).slice(0,5),
+  };
+  // Hour-of-day clustering for nadirs under 70
+  const hourCounts = {};
+  nadirs.filter(n=>n.nadir<70).forEach(n => {
+    const h = new Date(n.ts).getHours();
+    hourCounts[h] = (hourCounts[h]||0)+1;
+  });
+  const peakHours = Object.entries(hourCounts).sort((a,b)=>b[1]-a[1]).slice(0,3)
+    .map(([h,c]) => ({ hour:+h, count:c }));
+
+  // Insulin over the same window
+  const bol = (insulin?.boluses || []).filter(b => b && b.ts >= from);
+  const tot = (insulin?.dailyTotals || []).filter(t => {
+    const d = new Date(t.d+"T12:00:00").getTime(); return d >= from;
+  });
+  const avgTDD   = tot.length ? tot.reduce((a,t)=>a+(t.total||0),0)/tot.length : null;
+  const avgBasal = tot.length ? tot.reduce((a,t)=>a+(t.basal||0),0)/tot.length : null;
+  const basalPct = (avgTDD && avgBasal) ? Math.round((avgBasal/avgTDD)*100) : null;
+  const bolusDays = new Set(bol.map(b => new Date(b.ts).toDateString())).size || 1;
+
+  // Ratios the pump actually used, by meal window
+  const winRatios = {};
+  bol.forEach(b => {
+    if (!b.r) return;
+    const w = mealWindowFor(new Date(b.ts).getHours(), mealWindows);
+    (winRatios[w] = winRatios[w] || []).push(b.r);
+  });
+  const medianOf = a => { if(!a?.length) return null; const x=[...a].sort((p,q)=>p-q); return x[Math.floor(x.length/2)]; };
+
+  // Average BG by meal window
+  const winBG = {};
+  R.forEach(r => {
+    const w = mealWindowFor(new Date(r.ts).getHours(), mealWindows);
+    (winBG[w] = winBG[w] || []).push(r.value);
+  });
+  const byWindow = ["breakfast","lunch","snack","dinner","overnight"].map(w => ({
+    window: w,
+    avg: winBG[w]?.length ? Math.round(winBG[w].reduce((a,b)=>a+b,0)/winBG[w].length) : null,
+    ratio: medianOf(winRatios[w]),
+    n: winBG[w]?.length || 0,
+  }));
+
+  // Evening insulin vs overnight nadir (association only)
+  let lateBolusSplit = null;
+  if (bol.length && nadirs.length >= 8) {
+    const nightKey = ts => new Date(ts - (new Date(ts).getHours() < 6 ? 86400000 : 0)).toDateString();
+    const lateByNight = {};
+    bol.forEach(b => { const h=new Date(b.ts).getHours(); if (h>=21||h<6) lateByNight[nightKey(b.ts)] = true; });
+    const withLate = nadirs.filter(n => lateByNight[n.date]);
+    const without  = nadirs.filter(n => !lateByNight[n.date]);
+    const med = a => { if(!a.length) return null; const s=a.map(x=>x.nadir).sort((p,q)=>p-q); return s[Math.floor(s.length/2)]; };
+    if (withLate.length >= 3 && without.length >= 3) {
+      lateBolusSplit = {
+        withLate: { n: withLate.length, median: med(withLate) },
+        without:  { n: without.length,  median: med(without) },
+      };
+    }
+  }
+
+  // Devices
+  const S = (sites || []).filter(x => x && x.ts >= from);
+  const devices = ["pod","sensor"].map(d => {
+    const list = S.filter(x => x.device===d).sort((a,b)=>a.ts-b.ts);
+    const wears = [];
+    for (let i=1;i<list.length;i++) wears.push((list[i].ts-list[i-1].ts)/86400000);
+    return {
+      device: d, changes: list.length,
+      avgWear: wears.length ? (wears.reduce((a,b)=>a+b,0)/wears.length).toFixed(1) : null,
+      sites: [...new Set(list.map(x=>x.site))].length,
+    };
+  });
+
+  return { metrics, overnight, peakHours, insulin:{ avgTDD, avgBasal, basalPct,
+    bolusesPerDay: (bol.length/bolusDays).toFixed(1), n: bol.length }, byWindow, lateBolusSplit, devices };
+}
+
+
+function MetricRow({ label, value, target, met }) {
+  return (
+    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+      padding:"9px 0", borderBottom:`1px solid ${C.border}` }}>
+      <div style={{ fontSize:12.5, fontWeight:700, color:C.textDk }}>{label}</div>
+      <div style={{ display:"flex", alignItems:"baseline", gap:8 }}>
+        <span style={{ fontSize:10, color:C.textLt, fontWeight:600 }}>target {target}</span>
+        <span style={{ fontSize:15, fontWeight:800, minWidth:52, textAlign:"right",
+          color: met === null ? C.textDk : met ? C.inRange : C.high }}>{value}</span>
+      </div>
+    </div>
+  );
+}
+
+function EndoTab({ readings, insulin, sites, mealWindows }) {
+  const [copied, setCopied] = useState(false);
+  const sum = computeEndoSummary(readings, insulin, sites, mealWindows, 30);
+
+  if (!sum) return (
+    <div style={{ marginBottom:18 }}>
+      <Card><div style={{ color:C.textLt, fontSize:12.5, lineHeight:1.6 }}>
+        Not enough data in the last 30 days to build a summary yet.
+      </div></Card>
+    </div>
+  );
+
+  const { metrics: m, overnight: on, peakHours, insulin: ins, byWindow, lateBolusSplit, devices } = sum;
+  const hourLabel = h => new Date(2000,0,1,h).toLocaleTimeString([], { hour:"numeric" });
+  const WIN_LABEL = { breakfast:"Breakfast", lunch:"Lunch", snack:"Snack", dinner:"Dinner", overnight:"Overnight" };
+
+  const plainText = () => {
+    const L = [];
+    L.push(`HUDSON — 30-DAY CGM SUMMARY (${new Date().toLocaleDateString()})`);
+    L.push(`${m.n.toLocaleString()} readings · ${m.daysWithData}/${m.days} days · ${m.coverage}% CGM coverage`);
+    L.push("");
+    L.push("GLYCEMIC METRICS (vs international consensus targets)");
+    L.push(`  Average glucose   ${m.mean} mg/dL`);
+    L.push(`  GMI               ${m.gmi}%`);
+    L.push(`  Time in range     ${m.tir}%   (target >70%)`);
+    L.push(`  Below 70          ${m.below70}%  (target <4%)`);
+    L.push(`  Below 54          ${m.below54}%  (target <1%)`);
+    L.push(`  Above 180         ${m.above180}%  (target <25%)`);
+    L.push(`  Above 250         ${m.above250}%  (target <5%)`);
+    L.push(`  SD                ${m.sd} mg/dL`);
+    L.push(`  CV                ${m.cv}%  (target <36%)`);
+    L.push("");
+    L.push("OVERNIGHT (9pm–6am)");
+    L.push(`  Nights analyzed        ${on.nights}`);
+    L.push(`  Nights nadir <70       ${on.below70}`);
+    L.push(`  Nights nadir <54       ${on.below54}`);
+    L.push(`  Lowest nadir           ${on.lowest} mg/dL`);
+    if (peakHours.length) L.push(`  Lows cluster at        ${peakHours.map(p=>hourLabel(p.hour)).join(", ")}`);
+    if (on.worst.length) {
+      L.push("  Lowest nights:");
+      on.worst.forEach(w => L.push(`    ${new Date(w.ts).toLocaleDateString()} — ${w.nadir} mg/dL at ${new Date(w.ts).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}`));
+    }
+    L.push("");
+    if (ins.avgTDD) {
+      L.push("INSULIN");
+      L.push(`  Avg total daily dose   ${ins.avgTDD.toFixed(1)} U`);
+      if (ins.basalPct !== null) L.push(`  Basal / bolus split    ${ins.basalPct}% / ${100-ins.basalPct}%`);
+      L.push(`  Boluses per day        ${ins.bolusesPerDay}`);
+      L.push("");
+    }
+    L.push("BY MEAL WINDOW");
+    byWindow.filter(w=>w.avg!==null).forEach(w =>
+      L.push(`  ${WIN_LABEL[w.window].padEnd(10)} avg ${w.avg} mg/dL${w.ratio?`   pump ratio 1:${w.ratio}`:""}`));
+    L.push("");
+    if (lateBolusSplit) {
+      L.push("OBSERVATION — late boluses vs overnight nadir");
+      L.push(`  Nights with a bolus after 9pm (n=${lateBolusSplit.withLate.n}): median nadir ${lateBolusSplit.withLate.median}`);
+      L.push(`  Nights without (n=${lateBolusSplit.without.n}): median nadir ${lateBolusSplit.without.median}`);
+      L.push("  (association only — carbs and insulin move together)");
+      L.push("");
+    }
+    const dv = devices.filter(d=>d.changes>0);
+    if (dv.length) {
+      L.push("DEVICES");
+      dv.forEach(d => L.push(`  ${d.device==="pod"?"Pod":"Sensor"}: ${d.changes} changes${d.avgWear?`, avg wear ${d.avgWear}d`:""}, ${d.sites} sites used`));
+      L.push("");
+    }
+    L.push("QUESTIONS FOR THE APPOINTMENT");
+    L.push("  1. Given the overnight lows, is this basal, evening bolus tail, or both?");
+    L.push("  2. Should the overnight Target Glucose change, to what value, over which hours?");
+    L.push("  3. Do the meal ratios above match what should be programmed?");
+    L.push("  4. Any change to how we handle activity days?");
+    return L.join("\n");
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(plainText());
+      setCopied(true); setTimeout(()=>setCopied(false), 2200);
+    } catch { /* clipboard unavailable */ }
+  };
+
+  return (
+    <div style={{ marginBottom:18 }}>
+      <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+        <Btn onClick={copy} style={{ flex:1 }}>{copied ? "Copied ✓" : "Copy summary"}</Btn>
+        <Btn variant="secondary" onClick={()=>window.print()} style={{ flex:1 }}>Print</Btn>
+      </div>
+
+      <Card style={{ marginBottom:12 }}>
+        <div style={{ fontWeight:800, fontSize:15, color:C.textDk }}>Last 30 days</div>
+        <div style={{ fontSize:11, color:C.textLt, fontWeight:600, marginTop:2, marginBottom:12 }}>
+          {m.n.toLocaleString()} readings · {m.daysWithData}/{m.days} days · {m.coverage}% CGM coverage
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:14 }}>
+          {[["Avg glucose", m.mean, "mg/dL"], ["GMI", m.gmi, "%"], ["CV", m.cv, "%"]].map(([l,v,u])=>(
+            <div key={l} style={{ background:C.white, borderRadius:12, padding:"10px 12px" }}>
+              <div style={{ fontSize:10, color:C.textMd, fontWeight:600 }}>{l}</div>
+              <div style={{ fontSize:22, fontWeight:800, color:C.textDk, marginTop:2 }}>
+                {v}<span style={{ fontSize:11, color:C.textMd, fontWeight:600 }}>{u}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <MetricRow label="Time in range 70–180" value={`${m.tir}%`}      target=">70%"  met={m.tir>70}/>
+        <MetricRow label="Below 70"             value={`${m.below70}%`}  target="<4%"   met={m.below70<4}/>
+        <MetricRow label="Below 54"             value={`${m.below54}%`}  target="<1%"   met={m.below54<1}/>
+        <MetricRow label="Above 180"            value={`${m.above180}%`} target="<25%"  met={m.above180<25}/>
+        <MetricRow label="Above 250"            value={`${m.above250}%`} target="<5%"   met={m.above250<5}/>
+        <MetricRow label="Coefficient of variation" value={`${m.cv}%`}   target="<36%"  met={m.cv<36}/>
+      </Card>
+
+      <Card style={{ marginBottom:12 }}>
+        <div style={{ fontWeight:800, fontSize:15, color:C.textDk, marginBottom:2 }}>Overnight (9pm–6am)</div>
+        <div style={{ fontSize:11, color:C.textLt, fontWeight:600, marginBottom:12 }}>
+          Lowest reading each night
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:12 }}>
+          {[["Nights <70", on.below70, C.low], ["Nights <54", on.below54, C.high], ["Lowest", on.lowest, C.high]].map(([l,v,col])=>(
+            <div key={l} style={{ background:C.white, borderRadius:12, padding:"10px 12px" }}>
+              <div style={{ fontSize:10, color:C.textMd, fontWeight:600 }}>{l}</div>
+              <div style={{ fontSize:22, fontWeight:800, color:col, marginTop:2 }}>{v ?? "—"}</div>
+            </div>
+          ))}
+        </div>
+        {peakHours.length>0 && (
+          <div style={{ fontSize:12, color:C.textMd, fontWeight:700, marginBottom:10 }}>
+            Lows cluster around {peakHours.map(p=>hourLabel(p.hour)).join(", ")}
+          </div>
+        )}
+        {on.worst.map(w=>(
+          <div key={w.ts} style={{ display:"flex", justifyContent:"space-between",
+            padding:"7px 0", borderBottom:`1px solid ${C.border}`, fontSize:12 }}>
+            <span style={{ color:C.textMd, fontWeight:600 }}>
+              {new Date(w.ts).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+              {" · "}{new Date(w.ts).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
+            </span>
+            <span style={{ fontWeight:800, color: w.nadir<54 ? C.high : C.low }}>{w.nadir} mg/dL</span>
+          </div>
+        ))}
+      </Card>
+
+      {ins.avgTDD && (
+        <Card style={{ marginBottom:12 }}>
+          <div style={{ fontWeight:800, fontSize:15, color:C.textDk, marginBottom:12 }}>Insulin</div>
+          <MetricRow label="Avg total daily dose" value={`${ins.avgTDD.toFixed(1)}U`} target="—" met={null}/>
+          {ins.basalPct !== null &&
+            <MetricRow label="Basal share of TDD" value={`${ins.basalPct}%`} target="typ. 40–50%" met={null}/>}
+          <MetricRow label="Boluses per day" value={ins.bolusesPerDay} target="—" met={null}/>
+        </Card>
+      )}
+
+      <Card style={{ marginBottom:12 }}>
+        <div style={{ fontWeight:800, fontSize:15, color:C.textDk, marginBottom:12 }}>By meal window</div>
+        {byWindow.filter(w=>w.avg!==null).map(w=>(
+          <div key={w.window} style={{ display:"flex", justifyContent:"space-between",
+            padding:"8px 0", borderBottom:`1px solid ${C.border}` }}>
+            <span style={{ fontSize:12.5, fontWeight:700, color:C.textDk }}>{WIN_LABEL[w.window]}</span>
+            <span style={{ fontSize:12.5, fontWeight:700, color:C.textMd }}>
+              avg <b style={{ color:C.textDk }}>{w.avg}</b>
+              {w.ratio ? <> · pump 1:{w.ratio}</> : null}
+            </span>
+          </div>
+        ))}
+      </Card>
+
+      {lateBolusSplit && (
+        <Card style={{ marginBottom:12 }}>
+          <div style={{ fontWeight:800, fontSize:15, color:C.textDk, marginBottom:2 }}>Pattern to discuss</div>
+          <div style={{ fontSize:12.5, color:C.textMd, lineHeight:1.6, marginTop:8 }}>
+            Nights with a bolus after 9pm (n={lateBolusSplit.withLate.n}) had a median nadir of{" "}
+            <b style={{ color:C.textDk }}>{lateBolusSplit.withLate.median}</b>, versus{" "}
+            <b style={{ color:C.textDk }}>{lateBolusSplit.without.median}</b> on nights without
+            (n={lateBolusSplit.without.n}).
+          </div>
+          <div style={{ fontSize:11, color:C.textLt, marginTop:8, lineHeight:1.5 }}>
+            Association only — larger evening meals mean both more carbs and more insulin,
+            so this doesn't isolate a cause.
+          </div>
+        </Card>
+      )}
+
+      <Card style={{ marginBottom:12 }}>
+        <div style={{ fontWeight:800, fontSize:15, color:C.textDk, marginBottom:10 }}>Questions for the appointment</div>
+        {[
+          "Given the overnight lows, is this basal, evening bolus tail, or both?",
+          "Should the overnight Target Glucose change — to what value, over which hours?",
+          "Do the meal ratios above match what should be programmed?",
+          "Any change to how we handle activity days?",
+        ].map((q,i)=>(
+          <div key={i} style={{ display:"flex", gap:8, padding:"7px 0", fontSize:12.5, lineHeight:1.5 }}>
+            <span style={{ color:C.ravens, fontWeight:800 }}>{i+1}.</span>
+            <span style={{ color:C.textMd, fontWeight:600 }}>{q}</span>
+          </div>
+        ))}
+      </Card>
+
+      <div style={{ fontSize:10.5, color:C.textLt, lineHeight:1.6, textAlign:"center", padding:"0 8px 8px" }}>
+        Prepared from home CGM and pump data for discussion at an appointment.
+        Contains observations, not treatment recommendations — all dosing decisions
+        belong to Hudson's care team.
+      </div>
+    </div>
+  );
+}
+
 // ═══ Insulin Trends — from Glooko bolus data ═════════════════════════════════
 function InsulinTrends({ insulin, readings, fromTs, toTs, mealWindows, ratios }) {
   const bol = (insulin?.boluses || []).filter(b => b && b.ts >= fromTs && b.ts <= toTs);
@@ -1582,6 +1937,8 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
       {view==="pulse" && <T1DPulse/>}
 
       {view==="ask" && <AskTab/>}
+
+      {view==="endo" && <EndoTab readings={merged} insulin={insulin} sites={sites} mealWindows={mealWindows}/>}
 
       {view==="trends" && dataNotice}
       {view==="trends" && !dataNotice && (<>
