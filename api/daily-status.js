@@ -4,7 +4,7 @@
 //
 // Triggered by Vercel Cron. Dead subscriptions (404/410) are pruned automatically.
 import { kv } from "@vercel/kv";
-import { sendDeviceEmail } from "../lib/device-email.js";
+import { sendDeviceEmail } from "./device-email.js";
 import webpush from "web-push";
 
 const SUBS_KEY  = "hudson-push-subs";
