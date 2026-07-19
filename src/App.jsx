@@ -1877,7 +1877,7 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
       {/* ── Insights / Trends / News / Ask / Endo switch ── */}
       <div style={{ display:"flex", gap:18, marginBottom:16, alignItems:"flex-end",
         overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
-        {[["insights","Insights"],["trends","Trends"],["pulse","News"],["ask","Ask"],["endo","Endo"]].map(([id,label])=>(
+        {[["insights","Insights"],["trends","Trends"],["pulse","News"],["ask","Ask"],["endo","Endo"],["games","Games"]].map(([id,label])=>(
           <button key={id} type="button" onClick={()=>setView(id)}
             style={{ background:"none", border:"none", padding:"0 0 4px", cursor:"pointer",
               fontFamily:"inherit", fontWeight:800, fontSize:20, whiteSpace:"nowrap", flex:"0 0 auto",
@@ -1888,7 +1888,7 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
         ))}
       </div>
 
-      {view!=="ask" && view!=="pulse" && view!=="endo" && !loading && (<>
+      {view!=="ask" && view!=="pulse" && view!=="endo" && view!=="games" && !loading && (<>
       {/* Period picker */}
       <div style={{ marginBottom:14 }}>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:5, marginBottom:8 }}>
@@ -1939,6 +1939,8 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
       {view==="ask" && <AskTab/>}
 
       {view==="endo" && <EndoTab readings={merged} insulin={insulin} sites={sites} mealWindows={mealWindows}/>}
+
+      {view==="games" && <GamesTab readings={merged}/>}
 
       {view==="trends" && dataNotice}
       {view==="trends" && !dataNotice && (<>
@@ -2075,6 +2077,346 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
 }
 
 // ═══ Insights grid (Sugarmate-style tiles) ═══════════════════════════════════
+
+
+// ═══ Games tab ═══════════════════════════════════════════════════════════════
+// Two games built for Hudson:
+//  • Next Number — replays real moments from his own CGM history; guess where
+//    the next reading went. Trains trend-reading with instant feedback.
+//  • T1D Trivia — facts, devices, and athletes. No dosing content anywhere.
+const TRIVIA = [
+  // ── Athletes & famous people ──
+  { q:"Which Ravens tight end plays in the NFL with type 1 diabetes?", a:["Mark Andrews","Travis Kelce","George Kittle","Rob Gronkowski"], c:0,
+    fun:"#89 was diagnosed at age 9 — he checks his CGM on the sideline during games." },
+  { q:"Which Olympic swimmer with T1D won gold AFTER his diagnosis?", a:["Gary Hall Jr.","Michael Phelps","Ryan Lochte","Caeleb Dressel"], c:0,
+    fun:"Gary Hall Jr. won 10 Olympic medals total — doctors told him to quit swimming. He didn't." },
+  { q:"Which IndyCar driver races at 230+ mph with T1D?", a:["Conor Daly","Lewis Hamilton","Max Verstappen","Kyle Busch"], c:0,
+    fun:"Conor Daly was diagnosed at 14 and races with his CGM data on the car's dash." },
+  { q:"Which NBA player was a top-3 draft pick while managing T1D?", a:["Adam Morrison","LeBron James","Steph Curry","Luka Dončić"], c:0,
+    fun:"Adam Morrison went #3 overall in 2006 and led college basketball in scoring with T1D." },
+  { q:"Which NHL star with T1D has a diabetic alert dog named Orion?", a:["Max Domi","Sidney Crosby","Connor McDavid","Alex Ovechkin"], c:0,
+    fun:"Max Domi wrote a whole book about playing pro hockey with T1D." },
+  { q:"Which US Men's National Team soccer player has T1D?", a:["Jordan Morris","Christian Pulisic","Landon Donovan","Clint Dempsey"], c:0,
+    fun:"Jordan Morris has scored for the USMNT and won MLS Cups — pod and all." },
+  { q:"Which pop star was diagnosed with T1D at 13 and co-founded Beyond Type 1?", a:["Nick Jonas","Justin Bieber","Harry Styles","Shawn Mendes"], c:0,
+    fun:"Nick Jonas has performed sold-out world tours since his diagnosis in 2005." },
+  { q:"Which US Supreme Court Justice has lived with T1D since age 7?", a:["Sonia Sotomayor","Ruth Bader Ginsburg","John Roberts","Elena Kagan"], c:0,
+    fun:"Justice Sotomayor gave herself insulin shots starting in elementary school." },
+  { q:"Which UK Prime Minister led a country while managing T1D?", a:["Theresa May","Margaret Thatcher","Tony Blair","Winston Churchill"], c:0,
+    fun:"Theresa May was diagnosed as an adult and ran the UK wearing a CGM." },
+  { q:"Which Olympic cross-country skier competed in FOUR Olympics with T1D?", a:["Kris Freeman","Bode Miller","Shaun White","Apolo Ohno"], c:0,
+    fun:"Kris Freeman raced some of the most grueling endurance events in sports — with a pump." },
+  { q:"Which NFL quarterback kept playing after a T1D diagnosis in 2008?", a:["Jay Cutler","Tom Brady","Peyton Manning","Aaron Rodgers"], c:0,
+    fun:"Jay Cutler was diagnosed mid-career and played another decade in the NFL." },
+  { q:"Which Real Madrid defender has won Champions League titles with T1D?", a:["Nacho Fernández","Sergio Ramos","Gerard Piqué","Virgil van Dijk"], c:0,
+    fun:"Nacho was told at 12 he might not play again. He captained Real Madrid instead." },
+  { q:"Which WNBA player was a top-3 pick with T1D?", a:["Lauren Cox","Diana Taurasi","Sue Bird","Brittney Griner"], c:0,
+    fun:"Lauren Cox starred at Baylor and went #3 in the 2020 WNBA draft." },
+  { q:"Which MLB outfielder with T1D later became a team executive?", a:["Sam Fuld","Derek Jeter","Mike Trout","Bryce Harper"], c:0,
+    fun:"Sam Fuld was famous for diving catches — and ran youth sports camps for kids with T1D." },
+  { q:"Which musher finished the 1,000-mile Iditarod sled dog race with T1D?", a:["Bruce Linton","Balto","Togo","Jack London"], c:0,
+    fun:"Bruce Linton checked his BG at -40°F across Alaska. Your walk to school is easier." },
+  { q:"Has anyone with T1D climbed Mount Everest?", a:["Yes — multiple people","No, it's not allowed","Only halfway","Only in movies"], c:0,
+    fun:"Will Cross summited Everest in 2006 with T1D — and has trekked to both Poles too." },
+  { q:"Who was the first Miss America to wear an insulin pump on stage?", a:["Nicole Johnson","Vanessa Williams","Halle Berry","Gretchen Carlson"], c:0,
+    fun:"Nicole Johnson won Miss America 1999 and made T1D awareness her platform." },
+  { q:"Which IndyCar driver was the first licensed to race in the series with T1D?", a:["Charlie Kimball","Mario Andretti","Dale Earnhardt Jr.","Jimmie Johnson"], c:0,
+    fun:"Charlie Kimball paved the way — Conor Daly followed. T1D rides shotgun at 230 mph." },
+
+  // ── History ──
+  { q:"Insulin was discovered in 1921 in which city?", a:["Toronto, Canada","New York, USA","London, England","Paris, France"], c:0,
+    fun:"Frederick Banting and Charles Best discovered it at the University of Toronto." },
+  { q:"What did Banting sell the insulin patent for?", a:["$1","$1 million","$100,000","He kept it secret"], c:0,
+    fun:"The discoverers sold the patent to the university for $1 so everyone could afford insulin." },
+  { q:"Who was the first person ever treated with insulin, in 1922?", a:["A 14-year-old boy","A 90-year-old woman","A soldier","A doctor"], c:0,
+    fun:"Leonard Thompson was 14 — about the age T1D is often diagnosed. The shot saved his life." },
+  { q:"Before modern insulin, where did insulin come from?", a:["Cows and pigs","Chickens","Plants","The ocean"], c:0,
+    fun:"For 60 years insulin was purified from animals. Today it's made by engineered bacteria and yeast." },
+  { q:"World Diabetes Day is November 14. Why that date?", a:["Banting's birthday","First insulin shot","A president picked it","Random"], c:0,
+    fun:"It honors Frederick Banting, born Nov 14, 1891. The symbol is a blue circle." },
+  { q:"Frederick Banting won the Nobel Prize at 32. What record did that set?", a:["Youngest in Medicine ever","First Canadian ever","First surgeon ever","Most money won"], c:0,
+    fun:"Still the youngest Nobel laureate in Physiology or Medicine — for saving millions of kids." },
+  { q:"The first wearable insulin pump (1963) was the size of a…", a:["Backpack","Watch","Coin","Phone"], c:0,
+    fun:"Dr. Arnold Kadish's pump was worn like a military backpack. Your Omnipod is a bit smaller." },
+  { q:"What does the word 'diabetes mellitus' roughly mean in Greek and Latin?", a:["'Siphon' and 'honey-sweet'","'Sugar sickness'","'Tired blood'","'Sweet tooth'"], c:0,
+    fun:"Ancient doctors named it centuries before anyone knew what insulin was." },
+
+  // ── Science ──
+  { q:"What does insulin do?", a:["Helps glucose get from blood into cells","Makes food taste better","Speeds up your heart","Builds muscle directly"], c:0,
+    fun:"It's the key that unlocks cells so sugar can come in and be used for energy." },
+  { q:"What organ makes insulin in people without T1D?", a:["Pancreas","Liver","Heart","Brain"], c:0,
+    fun:"In T1D the immune system retires the pancreas's insulin cells — so tech does the job instead." },
+  { q:"Type 1 diabetes is caused by…", a:["The immune system attacking insulin cells","Eating too much sugar","Not exercising","Catching it from someone"], c:0,
+    fun:"T1D is autoimmune. Nothing Hudson ate or did caused it — that's a myth worth busting loudly." },
+  { q:"What hormone RAISES blood sugar (the opposite of insulin)?", a:["Glucagon","Adrenaline only","Melatonin","Vitamin D"], c:0,
+    fun:"Glucagon tells the liver to release stored sugar. It's also the emergency low treatment." },
+  { q:"Where does your body store extra glucose for later?", a:["The liver","The lungs","The kidneys","The feet"], c:0,
+    fun:"The liver stores it as glycogen — a sugar savings account it can release overnight." },
+  { q:"What happens to carbs during digestion?", a:["They become glucose","They become protein","They disappear","They become fat instantly"], c:0,
+    fun:"Bread, rice, fruit, milk — carbs all break down into glucose. That's why we count them." },
+  { q:"What does an A1C test measure?", a:["Average glucose over ~3 months","Today's glucose","Insulin in the blood","Heart rate"], c:0,
+    fun:"Red blood cells live about 3 months, and glucose sticks to them — so they carry the history." },
+  { q:"Why can't insulin be a pill?", a:["The stomach would digest it","It tastes too bad","Pills are too small","It would work too fast"], c:0,
+    fun:"Insulin is a protein, and stomachs digest protein like any food. So it goes under the skin." },
+  { q:"Exercise usually makes blood sugar…", a:["Go down","Go up","Stay exactly the same","Turn purple"], c:0,
+    fun:"Working muscles pull in glucose for fuel — though big-game adrenaline can spike it first!" },
+  { q:"Why does pizza famously hit blood sugar LATE?", a:["Fat slows digestion","Cheese has tons of sugar","It doesn't","Tomatoes block insulin"], c:0,
+    fun:"All that fat slows the carbs down, so the rise can show up hours later. Pizza is famous for this." },
+  { q:"Which raises blood sugar fastest?", a:["Juice","Peanut butter","Cheese","Steak"], c:0,
+    fun:"Liquids with sugar absorb quickest — that's why juice is the go-to for lows." },
+  { q:"Does 'sugar-free' mean carb-free?", a:["No","Yes","Only for candy","Only for drinks"], c:0,
+    fun:"Sugar-free cookies still have flour — and flour is carbs. Always check total carbohydrate." },
+  { q:"What does fiber do to glucose from food?", a:["Slows it down","Speeds it up","Doubles it","Nothing"], c:0,
+    fun:"Fiber is the speed bump of digestion — an apple hits slower than apple juice." },
+  { q:"Can being sick or stressed raise blood sugar?", a:["Yes","No","Only in adults","Only in winter"], c:0,
+    fun:"Stress hormones tell the liver to release sugar — the body thinks it's helping." },
+  { q:"The 'honeymoon phase' after diagnosis means…", a:["The pancreas still makes a little insulin","No more diabetes","A vacation","Sensors work better"], c:0,
+    fun:"For a while after diagnosis, some insulin cells keep working part-time. It fades, but it's real." },
+  { q:"Roughly what fraction of all diabetes is type 1?", a:["About 5–10%","About half","Almost all","About 90%"], c:0,
+    fun:"Most diabetes is type 2 — a different condition. T1D is the rarer, autoimmune one." },
+  { q:"Can people with T1D eat dessert?", a:["Yes, with planning","Never","Only sugar-free","Only on birthdays"], c:0,
+    fun:"Nothing is off the menu — carbs just get counted and covered. Cake included." },
+
+  // ── Devices & daily life ──
+  { q:"What does CGM stand for?", a:["Continuous Glucose Monitor","Carb Gram Meter","Central Glucose Machine","Counting Grams Monitor"], c:0,
+    fun:"Your Dexcom G7 reads glucose every 5 minutes — 288 times a day." },
+  { q:"A 'unicorn' in the T1D community means…", a:["A reading of exactly 100","A day with no alarms","A new sensor","A juice box"], c:0,
+    fun:"Perfectly round, perfectly in range. Rare and magical — like unicorns." },
+  { q:"Where does your Omnipod deliver insulin?", a:["Just under the skin","Into a muscle","Into a vein","Into the stomach organ"], c:0,
+    fun:"The tiny cannula sits in the fatty layer under the skin — that's why sites rotate." },
+  { q:"Why rotate pod and sensor sites?", a:["So skin recovers and absorbs insulin well","It's just a rule","To use both hands","It charges the pod"], c:0,
+    fun:"Using the same spot over and over can create tough tissue that absorbs insulin poorly." },
+  { q:"About how long does a Dexcom G7 sensor last?", a:["10 days","2 days","30 days","1 year"], c:0,
+    fun:"10 days plus a 12-hour grace period — then time for a new spot." },
+  { q:"About how long is an Omnipod worn before changing?", a:["3 days","10 days","1 day","2 weeks"], c:0,
+    fun:"72 hours, plus a short grace period — which is exactly what this app nags everyone about." },
+  { q:"How long does a G7 sensor take to warm up?", a:["About 30 minutes","2 days","6 hours","No warmup"], c:0,
+    fun:"About half an hour — the older G6 took two full hours. Progress!" },
+  { q:"What does 'time in range' mean?", a:["% of readings between 70–180","Minutes of exercise","How long a sensor lasts","Days between site changes"], c:0,
+    fun:"It's the big number doctors watch — and every 5-minute reading is a chance to be in it." },
+  { q:"In pump language, a 'bolus' is…", a:["A dose for food or correction","Background insulin","A sensor error","A type of snack"], c:0,
+    fun:"Bolus = the mealtime dose. Basal = the steady background drip. Two jobs, one hormone." },
+  { q:"What makes Omnipod 5 'automated'?", a:["It adjusts insulin using Dexcom readings","It orders its own refills","It talks","It never needs changing"], c:0,
+    fun:"Every 5 minutes it reads the CGM and nudges insulin up or down. A tiny robot pancreas." },
+  { q:"A common rule for treating a low is called…", a:["The 15/15 rule","The 50/50 rule","The touchdown rule","The 5-second rule"], c:0,
+    fun:"15 grams of fast carbs, recheck in 15 minutes — the version YOUR care team teaches always wins." },
+  { q:"What's a good fast sugar for treating a low?", a:["Juice or Skittles","Peanut butter","Cheese","Beef jerky"], c:0,
+    fun:"Fast carbs raise BG quickly. Fat and protein are great foods — just too slow for a low." },
+  { q:"Diabetic alert dogs are trained to…", a:["Smell blood sugar changes","Fetch juice boxes","Read CGMs","Bark at pizza"], c:0,
+    fun:"Dogs can smell the chemical changes of highs and lows — sometimes before the CGM catches it." },
+  { q:"A closed-loop system means…", a:["Pump and CGM talk to each other","Running in circles","A sensor worn as a ring","Wi-Fi is off"], c:0,
+    fun:"CGM reads, algorithm decides, pump delivers — the loop Hudson literally wears every day." },
+  { q:"How many glucose readings does a CGM take per day?", a:["288","24","1,000","12"], c:0,
+    fun:"One every 5 minutes, all day and night. This app has collected over 25,000 of them." },
+  { q:"If a low is coming during sports, the smart move is…", a:["Pause and treat, then play","Play through it","Hide it from coach","Run faster"], c:0,
+    fun:"Even Mark Andrews steps off the field to handle a low. Treating it IS the tough move." },
+  { q:"Who should know how to help with a low at school?", a:["Teachers, nurse, and friends","Nobody","Only the principal","Only parents"], c:0,
+    fun:"The more people who know the plan, the safer and easier everything gets. It's a team sport." },
+];
+
+function nextNumberRound(readings) {
+  // A random real moment with 7 consecutive readings ≤7 min apart:
+  // six shown, one hidden. Answer = direction of the hidden one.
+  const R = readings;
+  if (!R || R.length < 40) return null;
+  const sorted = [...R].sort((a,b)=>a.ts-b.ts);
+  for (let tries=0; tries<60; tries++) {
+    const i = 6 + Math.floor(Math.random() * (sorted.length - 7));
+    const win = sorted.slice(i-6, i+1);
+    let ok = true;
+    for (let j=1; j<win.length; j++) if (win[j].ts - win[j-1].ts > 7*60000) { ok=false; break; }
+    if (!ok) continue;
+    const shown = win.slice(0,6), next = win[6];
+    const last = shown[5].value, d = next.value - last;
+    return { shown, next, answer: d >= 4 ? "up" : d <= -4 ? "down" : "steady",
+      when: new Date(next.ts) };
+  }
+  return null;
+}
+
+function GamesTab({ readings }) {
+  const [mode, setMode] = useState(null);           // null | "next" | "trivia"
+  const [scores, setScores] = useState(() => localStore.get("hud-game-scores",
+    { nextBest:0, nextStreak:0, trivBest:0, trivStreak:0 }));
+  const save = upd => { const n = { ...scores, ...upd }; setScores(n); localStore.set("hud-game-scores", n); };
+
+  // Next Number state
+  const [round, setRound] = useState(null);
+  const [picked, setPicked] = useState(null);
+  const newRound = () => { setRound(nextNumberRound(readings)); setPicked(null); };
+
+  // Trivia state
+  const [ti, setTi] = useState(0);
+  const [tPicked, setTPicked] = useState(null);
+  // No repeats: answered questions persist in localStorage; the deck is only
+  // unseen ones, with answer order shuffled per question. When every question
+  // has been answered, the pass resets and a fresh full deck begins.
+  const prepQ = (qi) => {
+    const src = TRIVIA[qi];
+    const order = [0,1,2,3].sort(()=>Math.random()-0.5);
+    return { qi, q:src.q, a:order.map(i=>src.a[i]), c:order.indexOf(src.c), fun:src.fun };
+  };
+  const buildDeck = () => {
+    let seen = localStore.get("hud-trivia-seen", []);
+    let unseen = TRIVIA.map((_,i)=>i).filter(i=>!seen.includes(i));
+    if (unseen.length === 0) { localStore.set("hud-trivia-seen", []); unseen = TRIVIA.map((_,i)=>i); }
+    return unseen.sort(()=>Math.random()-0.5).map(prepQ);
+  };
+  const [deck, setDeck] = useState(buildDeck);
+
+  const btn = (active) => ({ flex:1, padding:"12px 0", borderRadius:12, border:"none",
+    fontFamily:"inherit", fontWeight:800, fontSize:14, cursor:"pointer",
+    background: active ? C.ravens : C.tile, color: active ? "#fff" : C.textDk });
+
+  if (mode === null) return (
+    <div style={{ marginBottom:18 }}>
+      <Card style={{ marginBottom:12 }}>
+        <div style={{ fontWeight:800, fontSize:16, color:C.textDk, marginBottom:4 }}>🎮 Games</div>
+        <div style={{ fontSize:12.5, color:C.textMd, lineHeight:1.6 }}>
+          Both games use Hudson's real numbers — no pressure, all practice.
+        </div>
+      </Card>
+      <Card style={{ marginBottom:12 }} >
+        <div onClick={()=>{ setMode("next"); newRound(); }} style={{ cursor:"pointer" }}>
+          <div style={{ fontWeight:800, fontSize:15, color:C.textDk }}>📈 Next Number</div>
+          <div style={{ fontSize:12, color:C.textMd, marginTop:4, lineHeight:1.5 }}>
+            Six real readings from Hudson's history — call where the next one went.
+          </div>
+          <div style={{ fontSize:11, color:C.textLt, fontWeight:700, marginTop:8 }}>
+            Best streak: {scores.nextBest} 🔥
+          </div>
+        </div>
+      </Card>
+      <Card>
+        <div onClick={()=>{ setMode("trivia"); setTi(0); setTPicked(null); setDeck(buildDeck()); }} style={{ cursor:"pointer" }}>
+          <div style={{ fontWeight:800, fontSize:15, color:C.textDk }}>🧠 T1D Trivia</div>
+          <div style={{ fontSize:12, color:C.textMd, marginTop:4, lineHeight:1.5 }}>
+            Devices, carbs, and the athletes who play with T1D.
+          </div>
+          <div style={{ fontSize:11, color:C.textLt, fontWeight:700, marginTop:8 }}>
+            Best streak: {scores.trivBest} 🔥
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+
+  if (mode === "next") {
+    if (!round) return (
+      <Card><div style={{ fontSize:12.5, color:C.textMd }}>Not enough history yet — check back after a few days of readings.</div></Card>
+    );
+    const vals = round.shown.map(r=>r.value);
+    const min = Math.min(...vals)-10, max = Math.max(...vals)+10;
+    const X = i => 10 + i*(210/5), Y = v => 66 - ((v-min)/(max-min))*52;
+    const correct = picked !== null && picked === round.answer;
+    return (
+      <div style={{ marginBottom:18 }}>
+        <button type="button" onClick={()=>setMode(null)} style={{ border:"none", background:"none",
+          color:C.textMd, fontWeight:700, fontSize:13, cursor:"pointer", padding:0, marginBottom:10, fontFamily:"inherit" }}>← Games</button>
+        <Card style={{ marginBottom:12 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+            <div style={{ fontWeight:800, fontSize:15, color:C.textDk }}>📈 Next Number</div>
+            <div style={{ fontSize:11, color:C.textLt, fontWeight:700 }}>streak {scores.nextStreak} 🔥 · best {scores.nextBest}</div>
+          </div>
+          <div style={{ fontSize:11, color:C.textLt, fontWeight:600, marginTop:2, marginBottom:10 }}>
+            {round.when.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})} around {round.when.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
+          </div>
+          <svg viewBox="0 0 260 76" style={{ width:"100%", display:"block" }}>
+            <polyline fill="none" stroke={C.ravens} strokeWidth="2.5"
+              points={vals.map((v,i)=>`${X(i)},${Y(v)}`).join(" ")}/>
+            {vals.map((v,i)=>(
+              <g key={i}>
+                <circle cx={X(i)} cy={Y(v)} r="4" fill={C.ravens}/>
+                <text x={X(i)} y={Y(v)-9} textAnchor="middle" fontSize="10" fontWeight="800" fill={C.textDk}>{v}</text>
+              </g>
+            ))}
+            <text x="238" y={Y(vals[5])+4} fontSize="16" fontWeight="900" fill={picked?C.textDk:C.textLt}>
+              {picked ? round.next.value : "?"}
+            </text>
+          </svg>
+          <div style={{ fontSize:11.5, color:C.textMd, fontWeight:600, margin:"6px 0 12px" }}>
+            Where did the next reading go? (±3 counts as steady)
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            {[["up","⬆️ Up"],["steady","➡️ Steady"],["down","⬇️ Down"]].map(([id,label])=>(
+              <button key={id} type="button" disabled={picked!==null}
+                onClick={()=>{
+                  setPicked(id);
+                  const win = id === round.answer;
+                  const st = win ? scores.nextStreak+1 : 0;
+                  save({ nextStreak: st, nextBest: Math.max(scores.nextBest, st) });
+                }}
+                style={btn(picked===id)}>{label}</button>
+            ))}
+          </div>
+          {picked!==null && (
+            <div style={{ marginTop:12, fontSize:13, fontWeight:800,
+              color: correct ? C.inRange : C.high }}>
+              {correct ? `Nailed it! It went to ${round.next.value}. 🎯` : `It went to ${round.next.value} (${round.answer}).`}
+              <button type="button" onClick={newRound}
+                style={{ display:"block", width:"100%", marginTop:10, padding:"12px 0", borderRadius:12,
+                  border:"none", background:C.ravens, color:"#fff", fontWeight:800, fontSize:14,
+                  cursor:"pointer", fontFamily:"inherit" }}>Next round →</button>
+            </div>
+          )}
+        </Card>
+      </div>
+    );
+  }
+
+  // trivia
+  const q = deck[Math.min(ti, deck.length-1)];
+  const qNum = TRIVIA.length - deck.length + ti + 1;
+  const tCorrect = tPicked !== null && tPicked === q.c;
+  return (
+    <div style={{ marginBottom:18 }}>
+      <button type="button" onClick={()=>setMode(null)} style={{ border:"none", background:"none",
+        color:C.textMd, fontWeight:700, fontSize:13, cursor:"pointer", padding:0, marginBottom:10, fontFamily:"inherit" }}>← Games</button>
+      <Card>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:10 }}>
+          <div style={{ fontWeight:800, fontSize:15, color:C.textDk }}>🧠 T1D Trivia</div>
+          <div style={{ fontSize:11, color:C.textLt, fontWeight:700 }}>streak {scores.trivStreak} 🔥 · best {scores.trivBest}</div>
+        </div>
+        <div style={{ fontSize:10.5, color:C.textLt, fontWeight:700, marginBottom:8 }}>Question {qNum} of {TRIVIA.length} — no repeats until you've seen them all</div>
+        <div style={{ fontSize:14, fontWeight:700, color:C.textDk, lineHeight:1.5, marginBottom:12 }}>{q.q}</div>
+        {q.a.map((opt,i)=>(
+          <button key={i} type="button" disabled={tPicked!==null}
+            onClick={()=>{
+              setTPicked(i);
+              const seen = localStore.get("hud-trivia-seen", []);
+              if (!seen.includes(q.qi)) localStore.set("hud-trivia-seen", [...seen, q.qi]);
+              const win = i === q.c;
+              const st = win ? scores.trivStreak+1 : 0;
+              save({ trivStreak: st, trivBest: Math.max(scores.trivBest, st) });
+            }}
+            style={{ display:"block", width:"100%", textAlign:"left", padding:"11px 14px",
+              borderRadius:12, border:"none", fontFamily:"inherit", fontWeight:700, fontSize:13,
+              marginBottom:8, cursor: tPicked===null ? "pointer" : "default",
+              background: tPicked===null ? C.tile : i===q.c ? C.inRange : i===tPicked ? C.high : C.tile,
+              color: tPicked!==null && (i===q.c || i===tPicked) ? "#fff" : C.textDk }}>
+            {opt}
+          </button>
+        ))}
+        {tPicked!==null && (
+          <div style={{ marginTop:6 }}>
+            <div style={{ fontSize:12.5, color:C.textMd, lineHeight:1.6, background:C.tile,
+              borderRadius:10, padding:"10px 12px" }}>
+              {tCorrect ? "✅ " : ""}{q.fun}
+            </div>
+            <button type="button" onClick={()=>{
+                if (ti + 1 >= deck.length) { setDeck(buildDeck()); setTi(0); }
+                else setTi(t=>t+1);
+                setTPicked(null);
+              }}
+              style={{ display:"block", width:"100%", marginTop:10, padding:"12px 0", borderRadius:12,
+                border:"none", background:C.ravens, color:"#fff", fontWeight:800, fontSize:14,
+                cursor:"pointer", fontFamily:"inherit" }}>Next question →</button>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
 
 // ═══ Metric trend sheet ══════════════════════════════════════════════════════
 // Tap any Insights tile → that metric across every period bucket at once.
