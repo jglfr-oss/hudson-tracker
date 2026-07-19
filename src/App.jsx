@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import T1DPulse from "./components/T1DPulse.jsx";
 
 // ═══ Ravens Palette ══════════════════════════════════════════════════════════
@@ -2075,10 +2075,139 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
 }
 
 // ═══ Insights grid (Sugarmate-style tiles) ═══════════════════════════════════
-function InsightTile({ label, sub, children }) {
+
+// ═══ Metric trend sheet ══════════════════════════════════════════════════════
+// Tap any Insights tile → that metric across every period bucket at once.
+const TREND_BUCKETS = [
+  { id:"today", label:"Today" },
+  { id:"7",  label:"7D",  days:7  },
+  { id:"14", label:"14D", days:14 },
+  { id:"30", label:"30D", days:30 },
+  { id:"60", label:"60D", days:60 },
+  { id:"90", label:"90D", days:90 },
+];
+
+const TREND_METRICS = {
+  avg:      { title:"Average Glucose",  unit:"mg/dL", kind:"single", pick: i => i.avgP },
+  gmi:      { title:"GMI",              unit:"%",     kind:"single", pick: i => i.gmi !== null ? parseFloat(i.gmi) : null },
+  sd:       { title:"Std. Dev.",        unit:"mg/dL", kind:"single", pick: i => i.sd },
+  bedtime:  { title:"🌙 Bedtime Avg.",  unit:"mg/dL", kind:"single", pick: i => i.bedtimeP },
+  wakeup:   { title:"☀️ Wake Up Avg.",  unit:"mg/dL", kind:"single", pick: i => i.wakeupP },
+  quart:    { title:"Quartiles",        unit:"mg/dL", kind:"quart",  pick: i => i.q },
+  inrange:  { title:"% In Range",       unit:"%",     kind:"single", pick: i => i.inRP },
+  tir:      { title:"Normal Range %",   unit:"",      kind:"tir",    pick: i => (i.inRP===null ? null : { below:i.belowP, inR:i.inRP, above:i.aboveP }) },
+  highlow:  { title:"Highs / Lows",     unit:"",      kind:"pair",   pick: i => ({ a:i.highsP, b:i.lowsP }) },
+  unicorns: { title:"🦄 Unicorns",      unit:"",      kind:"single", pick: i => i.unicornsP },
+  onhighs:  { title:"🌑 Overnight Highs", unit:"",    kind:"single", pick: i => i.onHighs },
+  onlows:   { title:"🌑 Overnight Lows",  unit:"",    kind:"single", pick: i => i.onLows },
+};
+
+function MetricTrendSheet({ metric, allReadings, mealWindows, onClose }) {
+  const def = TREND_METRICS[metric];
+  const rows = useMemo(() => {
+    if (!def) return [];
+    const now = Date.now();
+    const midnight = new Date(); midnight.setHours(0,0,0,0);
+    return TREND_BUCKETS.map(b => {
+      const from = b.id === "today" ? midnight.getTime() : now - b.days*86400000;
+      const P = (allReadings || []).filter(r => r && r.ts >= from);
+      const ins = P.length ? computeInsights(P, allReadings, mealWindows, from, now) : null;
+      return { ...b, v: ins ? def.pick(ins) : null, n: P.length };
+    });
+  }, [metric, allReadings, mealWindows]);
+  if (!def) return null;
+
+  const nums = rows.map(r => (def.kind === "single" ? r.v : null)).filter(v => v !== null && !isNaN(v));
+  const maxV = nums.length ? Math.max(...nums) : 1;
+  const isCount = ["highlow","unicorns","onhighs","onlows"].includes(metric);
+
   return (
-    <div style={{ background:C.tile, borderRadius:14, padding:"12px 12px 13px",
-      display:"flex", flexDirection:"column", minHeight:116 }}>
+    <>
+      <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.35)", zIndex:80 }}/>
+      <div style={{ position:"fixed", left:0, right:0, bottom:0, zIndex:81,
+        background:C.white, borderRadius:"20px 20px 0 0", padding:"18px 18px 26px",
+        maxHeight:"75vh", overflowY:"auto", boxShadow:"0 -8px 30px rgba(0,0,0,0.18)" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+          <div style={{ fontWeight:800, fontSize:16, color:C.textDk }}>{def.title}</div>
+          <button type="button" onClick={onClose}
+            style={{ border:"none", background:C.tile, borderRadius:"50%", width:30, height:30,
+              fontSize:15, cursor:"pointer", color:C.textDk }}>✕</button>
+        </div>
+        <div style={{ fontSize:11, color:C.textLt, fontWeight:600, marginBottom:14 }}>
+          across periods{isCount ? " · totals — longer periods naturally count more" : ""}
+        </div>
+
+        {rows.map(r => (
+          <div key={r.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 0" }}>
+            <div style={{ width:44, fontSize:12, fontWeight:800, color:C.textDk, flexShrink:0 }}>{r.label}</div>
+
+            {def.kind === "single" && (
+              <>
+                <div style={{ flex:1, height:16, background:C.tile, borderRadius:8, overflow:"hidden" }}>
+                  {r.v !== null && !isNaN(r.v) && (
+                    <div style={{ width:`${Math.max(3, (r.v/maxV)*100)}%`, height:"100%",
+                      background:C.ravens, borderRadius:8, opacity:0.85 }}/>
+                  )}
+                </div>
+                <div style={{ width:70, textAlign:"right", fontSize:13, fontWeight:800, color:C.textDk, flexShrink:0 }}>
+                  {r.v ?? "—"}{r.v !== null && def.unit ? <span style={{ fontSize:9.5, color:C.textMd, fontWeight:600 }}> {def.unit}</span> : null}
+                </div>
+              </>
+            )}
+
+            {def.kind === "tir" && (
+              r.v ? (
+                <>
+                  <div style={{ flex:1, height:16, borderRadius:8, overflow:"hidden", display:"flex" }}>
+                    <div style={{ width:`${r.v.below}%`, background:C.low }}/>
+                    <div style={{ width:`${r.v.inR}%`,  background:C.inRange }}/>
+                    <div style={{ width:`${r.v.above}%`, background:C.high }}/>
+                  </div>
+                  <div style={{ width:70, textAlign:"right", fontSize:12, fontWeight:800, color:C.textDk, flexShrink:0 }}>{r.v.inR}%</div>
+                </>
+              ) : <div style={{ flex:1, fontSize:12, color:C.textLt }}>—</div>
+            )}
+
+            {def.kind === "pair" && (
+              r.v && (r.v.a + r.v.b) > 0 ? (
+                <>
+                  <div style={{ flex:1, height:16, borderRadius:8, overflow:"hidden", display:"flex", background:C.tile }}>
+                    <div style={{ width:`${(r.v.a/(r.v.a+r.v.b))*100}%`, background:C.high }}/>
+                    <div style={{ width:`${(r.v.b/(r.v.a+r.v.b))*100}%`, background:C.low }}/>
+                  </div>
+                  <div style={{ width:70, textAlign:"right", fontSize:12, fontWeight:800, flexShrink:0 }}>
+                    <span style={{ color:C.high }}>{r.v.a}</span>
+                    <span style={{ color:C.textLt }}> / </span>
+                    <span style={{ color:C.low }}>{r.v.b}</span>
+                  </div>
+                </>
+              ) : <div style={{ flex:1, fontSize:12, color:C.textLt }}>0 / 0</div>
+            )}
+
+            {def.kind === "quart" && (
+              r.v ? (
+                <div style={{ flex:1, textAlign:"right", fontSize:13, fontWeight:700, color:C.textMd }}>
+                  {r.v.p25} · <b style={{ color:C.textDk, fontSize:15 }}>{r.v.p50}</b> · {r.v.p75}
+                </div>
+              ) : <div style={{ flex:1, textAlign:"right", fontSize:12, color:C.textLt }}>—</div>
+            )}
+          </div>
+        ))}
+        <div style={{ fontSize:10, color:C.textLt, marginTop:10, textAlign:"center" }}>
+          Rolling windows ending now · tap outside to close
+        </div>
+      </div>
+    </>
+  );
+}
+
+function InsightTile({ label, sub, children, onClick }) {
+  return (
+    <div onClick={onClick} role={onClick ? "button" : undefined}
+      style={{ background:C.tile, borderRadius:14, padding:"12px 12px 13px",
+      display:"flex", flexDirection:"column", minHeight:116,
+      cursor: onClick ? "pointer" : "default",
+      WebkitTapHighlightColor:"transparent" }}>
       <div style={{ fontSize:12, fontWeight:700, color:C.textDk, lineHeight:1.25, minHeight:30 }}>{label}</div>
       <div style={{ fontSize:10, color:C.textLt, fontWeight:600, marginTop:2 }}>{sub}</div>
       <div style={{ marginTop:"auto", paddingTop:8 }}>{children}</div>
@@ -2096,19 +2225,22 @@ function Big({ v, unit }) {
 }
 
 function InsightsGrid({ periodReadings, allReadings, periodLabel, mealWindows, fromTs, toTs }) {
+  const [trend, setTrend] = useState(null);
   const ins = computeInsights(periodReadings, allReadings, mealWindows, fromTs, toTs);
   if (!ins) return null;
   const P = periodLabel || "period";
   return (
     <div style={{ marginBottom:18 }}>
+      {trend && <MetricTrendSheet metric={trend} allReadings={allReadings}
+        mealWindows={mealWindows} onClose={()=>setTrend(null)}/>}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
-        <InsightTile label="Average Glucose" sub={P}><Big v={ins.avgP} unit="mg/dL"/></InsightTile>
-        <InsightTile label="GMI" sub={P}><Big v={ins.gmi} unit="%"/></InsightTile>
-        <InsightTile label="Std. Dev." sub={P}><Big v={ins.sd !== null ? `±${ins.sd}` : null} unit="mg/dL"/></InsightTile>
+        <InsightTile label="Average Glucose" sub={P} onClick={()=>setTrend("avg")}><Big v={ins.avgP} unit="mg/dL"/></InsightTile>
+        <InsightTile label="GMI" sub={P} onClick={()=>setTrend("gmi")}><Big v={ins.gmi} unit="%"/></InsightTile>
+        <InsightTile label="Std. Dev." sub={P} onClick={()=>setTrend("sd")}><Big v={ins.sd !== null ? `±${ins.sd}` : null} unit="mg/dL"/></InsightTile>
 
-        <InsightTile label="🌙 Bedtime Avg." sub={P}><Big v={ins.bedtimeP} unit="mg/dL"/></InsightTile>
-        <InsightTile label="☀️ Wake Up Avg." sub={P}><Big v={ins.wakeupP} unit="mg/dL"/></InsightTile>
-        <InsightTile label="Quartiles" sub={P}>
+        <InsightTile label="🌙 Bedtime Avg." sub={P} onClick={()=>setTrend("bedtime")}><Big v={ins.bedtimeP} unit="mg/dL"/></InsightTile>
+        <InsightTile label="☀️ Wake Up Avg." sub={P} onClick={()=>setTrend("wakeup")}><Big v={ins.wakeupP} unit="mg/dL"/></InsightTile>
+        <InsightTile label="Quartiles" sub={P} onClick={()=>setTrend("quart")}>
           {ins.q ? (
             <div style={{ display:"flex", alignItems:"baseline", gap:5 }}>
               <span style={{ fontSize:12, fontWeight:600, color:C.textMd }}>{ins.q.p25}</span>
@@ -2118,10 +2250,10 @@ function InsightsGrid({ periodReadings, allReadings, periodLabel, mealWindows, f
           ) : <Big v={null}/>}
         </InsightTile>
 
-        <InsightTile label="% In Range" sub={P}>
+        <InsightTile label="% In Range" sub={P} onClick={()=>setTrend("inrange")}>
           <Big v={ins.inRP !== null ? `${ins.inRP}%` : null}/>
         </InsightTile>
-        <InsightTile label="Normal Range %" sub={P}>
+        <InsightTile label="Normal Range %" sub={P} onClick={()=>setTrend("tir")}>
           {ins.inRP !== null ? (
             <div style={{ display:"flex", gap:5, alignItems:"baseline" }}>
               <span style={{ fontSize:12, fontWeight:700, color:C.low }}>{ins.belowP}%</span>
@@ -2130,7 +2262,7 @@ function InsightsGrid({ periodReadings, allReadings, periodLabel, mealWindows, f
             </div>
           ) : <Big v={null}/>}
         </InsightTile>
-        <InsightTile label="Highs/Lows" sub={P}>
+        <InsightTile label="Highs/Lows" sub={P} onClick={()=>setTrend("highlow")}>
           <div style={{ fontSize:26, fontWeight:800, letterSpacing:-0.5, lineHeight:1 }}>
             <span style={{ color:C.high }}>{ins.highsP}</span>
             <span style={{ color:C.textLt, fontWeight:600 }}> / </span>
@@ -2138,8 +2270,8 @@ function InsightsGrid({ periodReadings, allReadings, periodLabel, mealWindows, f
           </div>
         </InsightTile>
 
-        <InsightTile label="🦄 Unicorns" sub={P}><Big v={ins.unicornsP} unit="perfect 100s"/></InsightTile>
-        <InsightTile label="🌑 Overnight Highs" sub={P}>
+        <InsightTile label="🦄 Unicorns" sub={P} onClick={()=>setTrend("unicorns")}><Big v={ins.unicornsP} unit="perfect 100s"/></InsightTile>
+        <InsightTile label="🌑 Overnight Highs" sub={P} onClick={()=>setTrend("onhighs")}>
           <div style={{ display:"flex", alignItems:"baseline", gap:7 }}>
             <span style={{ fontSize:26, fontWeight:800, color:C.high, lineHeight:1, letterSpacing:-0.5 }}>{ins.onHighs}</span>
             {ins.onHighPct !== null && ins.onHighPct !== 0 && (
@@ -2153,7 +2285,7 @@ function InsightsGrid({ periodReadings, allReadings, periodLabel, mealWindows, f
             {ins.onPrev ? `vs ${ins.onPrev.highs} prior period` : "no prior period to compare"}
           </div>
         </InsightTile>
-        <InsightTile label="🌑 Overnight Lows" sub={P}>
+        <InsightTile label="🌑 Overnight Lows" sub={P} onClick={()=>setTrend("onlows")}>
           <div style={{ display:"flex", alignItems:"baseline", gap:7 }}>
             <span style={{ fontSize:26, fontWeight:800, color:C.low, lineHeight:1, letterSpacing:-0.5 }}>{ins.onLows}</span>
             {ins.onLowPct !== null && ins.onLowPct !== 0 && (
