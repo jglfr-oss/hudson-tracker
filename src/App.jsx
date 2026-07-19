@@ -2590,12 +2590,16 @@ export default function App() {
                   {dex?.ageMinutes>0 ? `${dex.ageMinutes} min ago | ` : ""}Hudson's data 🏈
                 </div>
               )}
-              <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:7,
-                fontSize:12.5, fontWeight:800, color:C.textMd, letterSpacing:0.2 }}>
-                <span>I am</span>
-                <span style={{ fontSize:20, fontWeight:900, color:C.ravens, lineHeight:0.9,
-                  fontFamily:"Georgia, 'Times New Roman', serif" }}>&gt;</span>
-                <span>my highs and lows</span>
+              <div style={{ marginTop:8 }} title="I am greater than my highs and lows"
+                aria-label="I am greater than my highs and lows">
+                <svg viewBox="0 0 152 40" width="146" height="38" style={{ display:"block", overflow:"visible" }}>
+                  <g fill="none" stroke={C.ravens} strokeWidth="6"
+                     strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="7" y1="9" x2="7" y2="31"/>
+                    <polyline points="22,9 36,20 22,31"/>
+                    <polyline points="50,29 64,11 78,29 92,11 106,29 120,11 134,29"/>
+                  </g>
+                </svg>
               </div>
             </div>
           </div>
