@@ -2190,7 +2190,7 @@ function SitesTab({ sites, onAdd, onDelete }) {
     <div className="slideUp">
 
       {/* Current wear status */}
-      <div style={{ display:"flex", gap:10, marginBottom:14, marginTop:14 }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:14, marginTop:14 }}>
         {["pod","sensor"].map(d => {
           const dev = DEVICES[d];
           const cur = latest[d];
@@ -2200,22 +2200,22 @@ function SitesTab({ sites, onAdd, onDelete }) {
           const soon    = left !== null && left > 0 && left <= 0.75;
           const col = overdue ? C.high : soon ? C.low : C.inRange;
           return (
-            <Card key={d} style={{ flex:1, padding:14, textAlign:"center" }}>
-              <div style={{ display:"flex", justifyContent:"center" }}><DevIcon device={d} size={24}/></div>
-              <div style={{ fontWeight:800, color:C.textDk, fontSize:13, marginTop:2 }}>{dev.label}</div>
+            <Card key={d} style={{ padding:"10px 14px", display:"flex", alignItems:"center", gap:10 }}>
+              <DevIcon device={d} size={22}/>
+              <div style={{ fontWeight:800, color:C.textDk, fontSize:13 }}>{dev.label}</div>
               {cur ? (
-                <>
-                  <div style={{ fontSize:20, fontWeight:900, color:col, marginTop:6, lineHeight:1 }}>
+                <div style={{ display:"flex", alignItems:"baseline", gap:8, marginLeft:"auto" }}>
+                  <span style={{ fontSize:11, color:C.textMd, fontWeight:600 }}>{cur.site}</span>
+                  <span style={{ fontSize:10, color:C.textLt }}>{fmtAgo(cur.ts)}</span>
+                  <span style={{ fontSize:16, fontWeight:900, color:col, lineHeight:1 }}>
                     {overdue ? "Due" : `${Math.max(0,left).toFixed(1)}d`}
-                  </div>
-                  <div style={{ fontSize:10, color:C.textLt, fontWeight:700, marginTop:3 }}>
-                    {overdue ? "change now" : "remaining"}
-                  </div>
-                  <div style={{ fontSize:10, color:C.textMd, marginTop:6, fontWeight:600 }}>{cur.site}</div>
-                  <div style={{ fontSize:10, color:C.textLt }}>{fmtAgo(cur.ts)}</div>
-                </>
+                  </span>
+                  <span style={{ fontSize:10, color:C.textLt, fontWeight:700 }}>
+                    {overdue ? "change now" : "left"}
+                  </span>
+                </div>
               ) : (
-                <div style={{ fontSize:11, color:C.textLt, marginTop:10, fontWeight:600 }}>No entries yet</div>
+                <div style={{ fontSize:11, color:C.textLt, fontWeight:600, marginLeft:"auto" }}>No entries yet</div>
               )}
             </Card>
           );
