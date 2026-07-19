@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import T1DPulse from "./components/T1DPulse.jsx";
 
 // ═══ Ravens Palette ══════════════════════════════════════════════════════════
 const C = {
@@ -1510,12 +1511,13 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
   return (
     <div className="slideUp">
 
-      {/* ── Insights / Trends switch ── */}
-      <div style={{ display:"flex", gap:22, marginBottom:16, alignItems:"flex-end" }}>
-        {[["insights","Insights"],["trends","Trends"],["ask","Ask"]].map(([id,label])=>(
+      {/* ── Insights / Trends / T1D Pulse / Ask switch ── */}
+      <div style={{ display:"flex", gap:18, marginBottom:16, alignItems:"flex-end",
+        overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
+        {[["insights","Insights"],["trends","Trends"],["pulse","T1D Pulse"],["ask","Ask"]].map(([id,label])=>(
           <button key={id} type="button" onClick={()=>setView(id)}
             style={{ background:"none", border:"none", padding:"0 0 4px", cursor:"pointer",
-              fontFamily:"inherit", fontWeight:800, fontSize:20,
+              fontFamily:"inherit", fontWeight:800, fontSize:20, whiteSpace:"nowrap", flex:"0 0 auto",
               color: view===id ? C.textDk : C.textLt,
               borderBottom: view===id ? `3px solid ${C.ravens}` : "3px solid transparent" }}>
             {label}
@@ -1523,7 +1525,7 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
         ))}
       </div>
 
-      {view!=="ask" && (<>
+      {view!=="ask" && view!=="pulse" && (<>
       {/* Period picker */}
       <div style={{ marginBottom:14 }}>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:5, marginBottom:8 }}>
@@ -1567,6 +1569,8 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
       </>)}
 
       {view==="insights" && <InsightsGrid periodReadings={all} allReadings={merged} periodLabel={periodLabel} mealWindows={mealWindows} fromTs={fromTs} toTs={toTs}/>}
+
+      {view==="pulse" && <T1DPulse/>}
 
       {view==="ask" && <AskTab/>}
 
