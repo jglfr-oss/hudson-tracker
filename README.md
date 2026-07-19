@@ -79,7 +79,8 @@ the cache.
 
 - Content from the **last 7 days** is preferred; items older than **30 days** are rejected
   unless nothing newer exists.
-- News is ranked by **relevance to Type 1 → source credibility → recency**.
+- News items are *selected* by **relevance to Type 1 → source credibility → recency**
+  (that score also decides which duplicate survives), then *displayed* newest-first.
 - Community posts get a transparent trending score (documented in
   `lib/t1d-pulse/scoring.js`):
 

@@ -109,6 +109,25 @@ test("buildPulse dedupes syndicated news across the merged set", () => {
   assert.equal(out.news.length, 1);
 });
 
+test("buildPulse sorts news newest-first regardless of score", () => {
+  const out = buildPulse(
+    {
+      news: {
+        items: [
+          // The oldest item gets the highest credibility so score order and
+          // date order disagree — date order must win in the output.
+          newsItem({ id: "old", title: "Type 1 diabetes CGM story from last week", publishedAt: daysAgo(6), credibility: 1 }),
+          newsItem({ id: "newest", title: "Type 1 diabetes artificial pancreas news from today", publishedAt: daysAgo(0.1), credibility: 0.3 }),
+          newsItem({ id: "mid", title: "Type 1 diabetes islet research from two days ago", publishedAt: daysAgo(2), credibility: 0.5 }),
+        ],
+        status: "ok",
+      },
+    },
+    NOW
+  );
+  assert.deepEqual(out.news.map((i) => i.id), ["newest", "mid", "old"]);
+});
+
 test("buildPulse caps each tab at the max and sorts by score", () => {
   const many = Array.from({ length: 40 }, (_, i) =>
     communityItem({ id: `c${i}`, url: `https://c.com/${i}`, title: `T1D post number ${i}`, engagement: { likes: i * 10, comments: i, shares: i, views: null, score: 0 } })
