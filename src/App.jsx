@@ -2792,7 +2792,7 @@ export default function App() {
 
   // Dexcom polling + save to bg-store
   useEffect(() => {
-    const fetchDex = async () => {
+    let fetchDex = async () => {
       try {
         const [latest, hist] = await Promise.all([
           fetch("/api/dexcom").then(r=>r.json()),
@@ -2800,6 +2800,7 @@ export default function App() {
         ]);
         if (latest.error) { setDexError(latest.error); setDex(null); }
         else {
+          if (typeof latest.timestamp === "number") lastReadingTs = latest.timestamp;
           setDex(latest); setDexError(null);
           // Fire SMS alerts
           const v=latest.value, tr=latest.trend;
@@ -2818,11 +2819,51 @@ export default function App() {
       } catch { setDexError("network"); }
       finally { setDexLoading(false); }
     };
-    fetchDex();
-    pollRef.current = setInterval(fetchDex, DEXCOM_POLL_MS);
-    const onVis = ()=>{ if(document.visibilityState==="visible") fetchDex(); };
+    // ── Smart scheduling ─────────────────────────────────────────────────────
+    // Dexcom emits a reading every 5 minutes. Instead of a blind interval
+    // (average staleness ≈ 2.5 min), predict when the next reading is due from
+    // the last reading's timestamp, poll just after it, and retry briefly
+    // until it actually appears. This is how Sugarmate/xDrip stay current.
+    const READ_CYCLE = 5*60*1000;
+    const ARRIVAL_BUFFER = 20*1000;   // Share-server upload latency
+    const RETRY_MS = 25*1000;
+    let lastReadingTs = 0;
+    let retries = 0;
+
+    const schedule = (ms) => {
+      clearTimeout(pollRef.current);
+      pollRef.current = setTimeout(tick, Math.max(4000, ms));
+    };
+
+    const tick = async () => {
+      const gotNew = await fetchDex();
+      if (gotNew || lastReadingTs === 0) {
+        retries = 0;
+        const next = lastReadingTs > 0
+          ? (lastReadingTs + READ_CYCLE + ARRIVAL_BUFFER) - Date.now()
+          : DEXCOM_POLL_MS;
+        schedule(next);
+      } else if (retries < 8) {
+        retries += 1;                 // expected a reading; not there yet
+        schedule(RETRY_MS);
+      } else {
+        retries = 0;                  // sensor gap/warmup — back off
+        schedule(60*1000);
+      }
+    };
+
+    // fetchDex reports whether it saw a NEW reading
+    const origFetch = fetchDex;
+    fetchDex = async () => {
+      const before = lastReadingTs;
+      await origFetch();
+      return lastReadingTs > before;
+    };
+
+    tick();
+    const onVis = ()=>{ if(document.visibilityState==="visible") { retries=0; tick(); } };
     document.addEventListener("visibilitychange", onVis);
-    return ()=>{ clearInterval(pollRef.current); document.removeEventListener("visibilitychange", onVis); };
+    return ()=>{ clearTimeout(pollRef.current); document.removeEventListener("visibilitychange", onVis); };
   }, []);
 
   const syncSettings = (patch) => {
