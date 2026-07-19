@@ -2944,6 +2944,16 @@ export default function App() {
       }
       link.href = c.toDataURL("image/png");
     } catch { /* favicon is decorative — never break the app for it */ }
+
+    // iOS home-screen icon: artwork is fixed at install, but the badge number
+    // is settable (iOS 16.4+ installed PWAs). Shows BG in the red corner badge.
+    // Cleared when stale so an old number can't pose as current.
+    try {
+      if ("setAppBadge" in navigator) {
+        if (stale) navigator.clearAppBadge?.();
+        else navigator.setAppBadge(v);
+      }
+    } catch { /* unsupported — fine */ }
   }, [dex, liveAgeMin]);
 
   const [insulin,      setInsulin     ] = useState({ boluses:[], dailyTotals:[] });
