@@ -182,7 +182,7 @@ export default async function handler(req, res) {
     if (pruned > 0) await kv.set(SUBS_KEY, alive);
 
     return res.status(200).json({
-      sent, failed, pruned, title, body, at: new Date().toISOString(),
+      sent, failed, pruned, email: emailResult, title, body, at: new Date().toISOString(),
     });
   } catch (e) {
     return res.status(500).json({ error: String(e) });
