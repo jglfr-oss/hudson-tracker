@@ -2769,7 +2769,7 @@ export default function App() {
             opacity: fabHidden && !fabOpen ? 0 : 1,
             transition:"transform .25s ease, opacity .25s ease" }}>
             {fabOpen && [
-              ["sites","📍","Devices"],
+              ["sites",null,"Devices"],
               ["settings","⚙️","Settings"],
               ["log",  "📋","Dose history"],
               ["dose", "💉","Calculate a dose"],
@@ -2782,7 +2782,13 @@ export default function App() {
                   whiteSpace:"nowrap",
                   boxShadow:"0 4px 18px rgba(0,0,0,0.18)", cursor:"pointer",
                   animation:"slideUp .18s ease both" }}>
-                <span style={{ fontSize:18 }}>{icon}</span>{label}
+                {icon === null ? (
+                  <span style={{ display:"flex", alignItems:"center", gap:3 }}>
+                    <PodIcon size={17}/><SensorIcon size={17}/>
+                  </span>
+                ) : (
+                  <span style={{ fontSize:18 }}>{icon}</span>
+                )}{label}
               </button>
             ))}
             <button type="button" onClick={()=>setFabOpen(o=>!o)}
