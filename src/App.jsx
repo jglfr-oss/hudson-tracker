@@ -2908,6 +2908,44 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
   const liveAgeMin = dex?.timestamp ? Math.max(0, Math.round((nowTick - dex.timestamp)/60000)) : dex?.ageMinutes;
+
+  // ── Browser tab: live BG in the favicon + title with the I>∧V mark ────────
+  // (Desktop pinned-tab glanceability; iOS home-screen PWA ignores favicons.)
+  useEffect(() => {
+    if (!dex || typeof dex.value !== "number") return;
+    const v = dex.value;
+    const stale = liveAgeMin != null && liveAgeMin >= 15;
+    const col = stale ? "#9CA3AF"
+      : v < TARGET_LOW ? C.high : v > TARGET_HIGH ? C.low : C.inRange;
+
+    document.title = `${v} ${trendArrow(dex.trend) || ""} · I>∧V`.trim();
+
+    try {
+      const c = document.createElement("canvas");
+      c.width = 64; c.height = 64;
+      const x = c.getContext("2d");
+      x.fillStyle = col;
+      // Rounded square backdrop
+      const r = 14;
+      x.beginPath();
+      x.moveTo(r,0); x.lineTo(64-r,0); x.quadraticCurveTo(64,0,64,r);
+      x.lineTo(64,64-r); x.quadraticCurveTo(64,64,64-r,64);
+      x.lineTo(r,64); x.quadraticCurveTo(0,64,0,64-r);
+      x.lineTo(0,r); x.quadraticCurveTo(0,0,r,0); x.fill();
+      x.fillStyle = "#fff";
+      x.font = `800 ${v >= 100 ? 30 : 36}px -apple-system, Arial, sans-serif`;
+      x.textAlign = "center"; x.textBaseline = "middle";
+      x.fillText(String(v), 32, 35);
+      let link = document.querySelector("link#live-favicon");
+      if (!link) {
+        link = document.createElement("link");
+        link.id = "live-favicon"; link.rel = "icon"; link.type = "image/png";
+        document.head.appendChild(link);
+      }
+      link.href = c.toDataURL("image/png");
+    } catch { /* favicon is decorative — never break the app for it */ }
+  }, [dex, liveAgeMin]);
+
   const [insulin,      setInsulin     ] = useState({ boluses:[], dailyTotals:[] });
   const pollRef      = useRef();
   const lastAlertRef = useRef(null);
