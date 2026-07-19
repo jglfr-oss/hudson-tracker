@@ -66,6 +66,19 @@ const DEVICES = {
   sensor: { label:"Sensor", icon:"📡", wearDays:10, color:"#0EA5A5" },
 };
 
+// Same rule as the email/push reminders: the site after the most recently
+// used one, in fixed rotation order (wrapping).
+function recommendNextSite(device, sites) {
+  const opts = SITE_OPTIONS[device] || [];
+  if (!opts.length) return null;
+  const used = (sites || [])
+    .filter(x => x && x.device === device && x.site && typeof x.ts === "number")
+    .sort((a, b) => b.ts - a.ts);
+  if (!used.length) return opts[0];
+  const idx = opts.indexOf(used[0].site);
+  return opts[(idx === -1 ? 0 : idx + 1) % opts.length];
+}
+
 const SITE_OPTIONS = {
   pod: [
     "Abdomen — L", "Abdomen — R",
@@ -826,8 +839,10 @@ function HighLowTrend({ readings, rangeLow, rangeHigh, mealWindows }) {
 const ASK_SUGGESTIONS = [
   "How were overnights this week vs last week?",
   "Which day of the week runs highest?",
-  "Did going back on the pump help?",
   "Any pattern before the overnight lows?",
+  "Why does pizza make blood sugar rise late?",
+  "Which pro athletes have type 1?",
+  "How does the Omnipod know when to give insulin?",
 ];
 
 function AskTab() {
@@ -869,7 +884,7 @@ function AskTab() {
       {msgs.length === 0 && (
         <div style={{ marginBottom:14 }}>
           <div style={{ fontSize:13, color:C.textMd, fontWeight:600, lineHeight:1.5, marginBottom:12 }}>
-            Ask anything about Hudson's glucose or site data — answers come from the actual readings.
+            Ask about Hudson's data — or anything about type 1 diabetes. Data answers come from his actual readings.
           </div>
           <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
             {ASK_SUGGESTIONS.map(q=>(
@@ -901,7 +916,7 @@ function AskTab() {
         <div style={{ display:"flex", justifyContent:"flex-start", marginBottom:8 }}>
           <div style={{ background:C.tile, borderRadius:14, padding:"10px 16px",
             fontSize:13, color:C.textLt, fontWeight:600 }}>
-            Looking at the data…
+            Thinking…
           </div>
         </div>
       )}
@@ -915,7 +930,7 @@ function AskTab() {
         <input value={input}
           onChange={e=>setInput(e.target.value)}
           onKeyDown={e=>{ if(e.key==="Enter") send(); }}
-          placeholder="Ask about the data…"
+          placeholder="Ask about the data or T1D…"
           style={{ flex:1, padding:"12px 14px", borderRadius:14, fontSize:14,
             fontFamily:"inherit", border:"none", background:C.tile,
             color:C.textDk, outline:"none" }}/>
@@ -2994,10 +3009,10 @@ function SitesTab({ sites, onAdd, onDelete }) {
   const [device, setDevice] = useState("pod");
   const [date,   setDate  ] = useState(toDateVal(now));
   const [time,   setTime  ] = useState(toTimeVal(now));
-  const [site,   setSite  ] = useState(SITE_OPTIONS.pod[0]);
+  const [site,   setSite  ] = useState(() => recommendNextSite("pod", sites) || SITE_OPTIONS.pod[0]);
   const [saved,  setSaved ] = useState(false);
 
-  const pickDevice = d => { setDevice(d); setSite(SITE_OPTIONS[d][0]); };
+  const pickDevice = d => { setDevice(d); setSite(recommendNextSite(d, sites) || SITE_OPTIONS[d][0]); };
 
   // Most recent entry per device
   const latest = {};
@@ -3057,8 +3072,10 @@ function SitesTab({ sites, onAdd, onDelete }) {
           const overdue = left !== null && left <= 0;
           const soon    = left !== null && left > 0 && left <= 0.75;
           const col = overdue ? C.high : soon ? C.low : C.inRange;
+          const nextSite = recommendNextSite(d, sites);
           return (
-            <Card key={d} style={{ padding:"10px 14px", display:"flex", alignItems:"center", gap:10 }}>
+            <Card key={d} style={{ padding:"10px 14px" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
               <DevIcon device={d} size={22}/>
               <div style={{ fontWeight:800, color:C.textDk, fontSize:13 }}>{dev.label}</div>
               {cur ? (
@@ -3072,7 +3089,14 @@ function SitesTab({ sites, onAdd, onDelete }) {
               ) : (
                 <div style={{ fontSize:11, color:C.textLt, fontWeight:600, marginLeft:"auto" }}>No entries yet</div>
               )}
-            </Card>
+            
+              </div>
+              {nextSite && (
+                <div style={{ fontSize:11, fontWeight:700, color:C.textMd, marginTop:6, paddingLeft:32 }}>
+                  → next: <span style={{ color:C.ravens }}>{nextSite}</span> <span style={{ color:C.textLt, fontWeight:600 }}>(rotation)</span>
+                </div>
+              )}
+              </Card>
           );
         })}
       </div>
