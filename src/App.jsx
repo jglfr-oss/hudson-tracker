@@ -2366,6 +2366,20 @@ function Sheet({ title, onClose, children }) {
 export default function App() {
   const [sheet,        setSheet       ] = useState(null); // null | "dose" | "log" | "sites"
   const [fabOpen,      setFabOpen     ] = useState(false);
+  const [fabHidden,    setFabHidden   ] = useState(false);
+
+  // Tuck the + button out of the way while the page is actively scrolling so it
+  // doesn't sit on top of the content being read; bring it back on scroll end.
+  useEffect(() => {
+    let timer;
+    const onScroll = () => {
+      setFabHidden(true);
+      clearTimeout(timer);
+      timer = setTimeout(() => setFabHidden(false), 400);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => { window.removeEventListener("scroll", onScroll); clearTimeout(timer); };
+  }, []);
   const [mealId,       setMealId      ] = useState(timeLabel);
   const [carbs,        setCarbs       ] = useState(30);
   const [bg,           setBg          ] = useState(120);
@@ -2734,7 +2748,10 @@ export default function App() {
               style={{ position:"fixed", inset:0, zIndex:8000, background:"rgba(0,0,0,0.28)" }}/>
           )}
           <div style={{ position:"fixed", left:0, right:0, bottom:26, zIndex:8500,
-            display:"flex", flexDirection:"column", alignItems:"center", gap:10, pointerEvents:"none" }}>
+            display:"flex", flexDirection:"column", alignItems:"center", gap:10, pointerEvents:"none",
+            transform: fabHidden && !fabOpen ? "translateY(110px)" : "none",
+            opacity: fabHidden && !fabOpen ? 0 : 1,
+            transition:"transform .25s ease, opacity .25s ease" }}>
             {fabOpen && [
               ["sites","📍","Devices"],
               ["settings","⚙️","Settings"],
