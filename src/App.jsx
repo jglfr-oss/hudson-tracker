@@ -1484,15 +1484,17 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
       current, suggested: null };
   };
 
-  if (loading) return (
+  // Insights/Trends need BG history; T1D Pulse and Ask do not. Render the
+  // loading / not-enough-data notices in place of the data views (instead of
+  // returning early) so the tab bar — and Pulse/Ask — stay reachable, and the
+  // period picker stays available to escape an empty custom range.
+  const dataNotice = loading ? (
     <div style={{ textAlign:"center", padding:"60px 0", color:C.textLt }}>
       <div style={{ fontSize:36, marginBottom:12 }}>📊</div>
       <div style={{ fontWeight:700 }}>Loading history…</div>
       <div style={{ fontSize:12, marginTop:6, color:C.textLt }}>Data accumulates every 5 min while app is open</div>
     </div>
-  );
-
-  if (!stats || all.length < 10) return (
+  ) : (!stats || all.length < 10) ? (
     <div style={{ textAlign:"center", padding:"60px 20px", color:C.textLt }}>
       <div style={{ fontSize:48, marginBottom:12 }}>📡</div>
       <div style={{ fontWeight:700, fontSize:16, color:C.textDk }}>Not enough data yet</div>
@@ -1503,10 +1505,10 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
         {all.length} readings stored so far
       </div>
     </div>
-  );
+  ) : null;
 
-  const oldest = new Date(all[0].ts).toLocaleDateString("en-US",{month:"short",day:"numeric"});
-  const newest = new Date(all[all.length-1].ts).toLocaleDateString("en-US",{month:"short",day:"numeric"});
+  const oldest = all.length ? new Date(all[0].ts).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "";
+  const newest = all.length ? new Date(all[all.length-1].ts).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "";
 
   return (
     <div className="slideUp">
@@ -1525,7 +1527,7 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
         ))}
       </div>
 
-      {view!=="ask" && view!=="pulse" && (<>
+      {view!=="ask" && view!=="pulse" && !loading && (<>
       {/* Period picker */}
       <div style={{ marginBottom:14 }}>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:5, marginBottom:8 }}>
@@ -1568,13 +1570,15 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
 
       </>)}
 
-      {view==="insights" && <InsightsGrid periodReadings={all} allReadings={merged} periodLabel={periodLabel} mealWindows={mealWindows} fromTs={fromTs} toTs={toTs}/>}
+      {view==="insights" && (dataNotice ||
+        <InsightsGrid periodReadings={all} allReadings={merged} periodLabel={periodLabel} mealWindows={mealWindows} fromTs={fromTs} toTs={toTs}/>)}
 
       {view==="pulse" && <T1DPulse/>}
 
       {view==="ask" && <AskTab/>}
 
-      {view==="trends" && (<>
+      {view==="trends" && dataNotice}
+      {view==="trends" && !dataNotice && (<>
       {/* Header row */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
         <div style={{ fontSize:11, color:C.textLt, fontWeight:700 }}>

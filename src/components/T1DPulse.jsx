@@ -75,19 +75,23 @@ export default function T1DPulse() {
   const [refreshing, setRefreshing] = useState(false);
   const [visible, setVisible] = useState(INITIAL_VISIBLE);
   const liveRef = useRef(null);
+  const reqSeq = useRef(0); // ignore out-of-order / post-unmount responses
 
   const load = useCallback(async (force = false) => {
+    const seq = ++reqSeq.current;
     force ? setRefreshing(true) : setLoading(true);
     setError(null);
     try {
       const r = await fetch(`/api/t1d-pulse${force ? "?refresh=1" : ""}`);
       const d = await r.json();
+      if (seq !== reqSeq.current) return; // a newer request superseded this one
       if (!r.ok || !d || !Array.isArray(d.news)) {
         setError("Couldn't load the latest — try again in a moment.");
       } else {
         setData(d);
       }
     } catch {
+      if (seq !== reqSeq.current) return;
       setError("Couldn't reach the server. Check your connection and try again.");
     }
     setLoading(false);
@@ -96,6 +100,8 @@ export default function T1DPulse() {
 
   useEffect(() => {
     load(false);
+    const seqRef = reqSeq;
+    return () => { seqRef.current++; }; // invalidate in-flight request on unmount
   }, [load]);
 
   // Reset the visible count when switching tab or filter.

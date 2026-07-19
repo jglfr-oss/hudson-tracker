@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseFeed } from "../../lib/t1d-pulse/feed.js";
-import { normalizeFeedRecords, parsePubmed, parseNewsApi } from "../../lib/t1d-pulse/sources/news.js";
+import { normalizeFeedRecords, parsePubmed, parseNewsApi, splitGoogleNewsTitle } from "../../lib/t1d-pulse/sources/news.js";
 import { parseYouTube } from "../../lib/t1d-pulse/sources/youtube.js";
 import { parseBluesky } from "../../lib/t1d-pulse/sources/bluesky.js";
 import { parseX } from "../../lib/t1d-pulse/sources/x.js";
@@ -63,6 +63,37 @@ test("normalizeFeedRecords keeps T1D items and excludes type-2-only", () => {
   assert.equal(items[0].verifiedSource, true);
   assert.equal(items[0].credibility, 0.7);
   assert.equal(items[0].type, "news");
+});
+
+test("splitGoogleNewsTitle separates headline and publisher", () => {
+  assert.deepEqual(
+    splitGoogleNewsTitle("New CGM approved for type 1 diabetes - Reuters"),
+    { headline: "New CGM approved for type 1 diabetes", publisher: "Reuters" }
+  );
+  // No separator → no publisher.
+  assert.deepEqual(splitGoogleNewsTitle("Plain headline"), { headline: "Plain headline", publisher: null });
+  // Uses the LAST " - " when the headline itself contains one.
+  assert.deepEqual(
+    splitGoogleNewsTitle("Omnipod 5 - a parent review - diaTribe"),
+    { headline: "Omnipod 5 - a parent review", publisher: "diaTribe" }
+  );
+});
+
+test("normalizeFeedRecords uses the Google News publisher as source and drops the echo excerpt", () => {
+  const meta = { source: "Google News", platform: "googlenews", verifiedSource: true, credibility: 0.7, defaultCategory: "research" };
+  const records = [{
+    title: "Type 1 diabetes trial shows promise - STAT News",
+    url: "https://news.google.com/rss/articles/abc123",
+    description: '<a href="https://news.google.com/x">Type 1 diabetes trial shows promise - STAT News</a>',
+    publishedAt: "Wed, 16 Jul 2026 08:00:00 GMT",
+    author: null,
+    imageUrl: "",
+  }];
+  const items = normalizeFeedRecords(records, meta, 1000);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].title, "Type 1 diabetes trial shows promise");
+  assert.equal(items[0].source, "STAT News");
+  assert.equal(items[0].excerpt, "");
 });
 
 test("parsePubmed normalizes esummary payloads", () => {

@@ -118,3 +118,20 @@ test("makeItem returns null without a usable url or title", () => {
   assert.equal(makeItem({ title: "x", url: "javascript:bad()" }), null);
   assert.equal(makeItem({ title: "", url: "https://a.com" }), null);
 });
+
+test("makeItem drops the excerpt when it just echoes a community post's title", () => {
+  const text = "My type 1 diabetes CGM journey so far";
+  const item = makeItem({ type: "community", platform: "bluesky", title: text, excerpt: text, url: "https://bsky.app/x" });
+  assert.equal(item.excerpt, "");
+
+  // Long post: title truncated, echo-prefix excerpt also dropped.
+  const long = ("type 1 diabetes update " + "word ".repeat(60)).trim();
+  const longItem = makeItem({ type: "community", platform: "x", title: long, excerpt: long, url: "https://x.com/1" });
+  assert.ok(longItem.title.endsWith("…"));
+  assert.ok(longItem.title.length <= 181);
+  assert.equal(longItem.excerpt, "");
+
+  // A genuinely different excerpt is kept.
+  const diff = makeItem({ type: "community", platform: "reddit", title: "T1D pump question", excerpt: "Does anyone rotate sites weekly?", url: "https://reddit.com/1" });
+  assert.equal(diff.excerpt, "Does anyone rotate sites weekly?");
+});
