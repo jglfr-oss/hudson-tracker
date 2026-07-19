@@ -62,7 +62,7 @@ function fmtLeft(hoursLeft) {
   return `${(hoursLeft / 24).toFixed(1)} days left`;
 }
 
-function buildMessage(sites) {
+function buildMessage(sites, edition, latestBG) {
   const lines = [];
   let anyOverdue = false;
   let anySoon = false;
@@ -92,8 +92,13 @@ function buildMessage(sites) {
   }
 
   const title = anyOverdue ? "Device change due"
-              : anySoon    ? "Device change coming up"
-              : "Good morning";
+              : anySoon    ? (edition === "evening" ? "Device change tonight" : "Device change coming up")
+              : (edition === "evening" ? "Bedtime check" : "Good morning");
+
+  // Evening edition leads with the current BG — the last look before overnight.
+  if (edition === "evening" && latestBG) {
+    lines.unshift(`BG ${latestBG.value} mg/dL (${latestBG.ageMin} min ago)`);
+  }
 
   return { title, body: lines.join("\n") };
 }
@@ -122,7 +127,22 @@ export default async function handler(req, res) {
     const sites = (await kv.get(SITES_KEY)) ?? [];
     const subs  = (await kv.get(SUBS_KEY))  ?? [];
 
-    const { title, body } = buildMessage(sites);
+    const edition = req.query && req.query.edition === "evening" ? "evening" : "morning";
+
+    let latestBG = null;
+    if (edition === "evening") {
+      try {
+        const hist = await kv.get("hudson-bg-history");
+        if (Array.isArray(hist) && hist.length) {
+          const last = hist.reduce((a, b) => (b && b.ts > a.ts ? b : a), hist[0]);
+          if (last && typeof last.value === "number") {
+            latestBG = { value: last.value, ageMin: Math.max(0, Math.round((Date.now() - last.ts) / 60000)) };
+          }
+        }
+      } catch { /* BG line is a bonus, never a blocker */ }
+    }
+
+    const { title, body } = buildMessage(sites, edition, latestBG);
 
     // Preview mode: ?dry=1 shows the message without sending.
     if (req.query && req.query.dry) {
