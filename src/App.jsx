@@ -2285,12 +2285,6 @@ function GamesTab({ readings }) {
 
   if (mode === null) return (
     <div style={{ marginBottom:18 }}>
-      <Card style={{ marginBottom:12 }}>
-        <div style={{ fontWeight:800, fontSize:16, color:C.textDk, marginBottom:4 }}>🎮 Games</div>
-        <div style={{ fontSize:12.5, color:C.textMd, lineHeight:1.6 }}>
-          Both games use Hudson's real numbers — no pressure, all practice.
-        </div>
-      </Card>
       <Card style={{ marginBottom:12 }} >
         <div onClick={()=>{ setMode("next"); newRound(); }} style={{ cursor:"pointer" }}>
           <div style={{ fontWeight:800, fontSize:15, color:C.textDk }}>📈 Next Number</div>
