@@ -61,13 +61,15 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "invalid question" });
     }
 
-    const [readings, sites, ratios, mealWindows, rangeLow, rangeHigh] = await Promise.all([
+    const [readings, sites, ratios, mealWindows, rangeLow, rangeHigh, insulin, doseLog] = await Promise.all([
       kv.get("hudson-bg-history"),
       kv.get("hudson-site-log"),
       kv.get("hudson-ratios"),
       kv.get("hudson-meal-windows"),
       kv.get("hudson-range-low"),
       kv.get("hudson-range-high"),
+      kv.get("hudson-insulin"),
+      kv.get("hudson-log"),
     ]);
 
     const { lines, siteLines } = buildDigest(
@@ -76,8 +78,41 @@ export default async function handler(req, res) {
       { rangeLow, rangeHigh, mealWindows }
     );
 
+    // Insulin digest: pump daily totals + per-day bolus summaries (from Glooko)
+    const insulinLines = [];
+    if (insulin && Array.isArray(insulin.dailyTotals)) {
+      for (const t of [...insulin.dailyTotals].sort((a,b)=>String(a.d).localeCompare(String(b.d)))) {
+        if (t && t.d) insulinLines.push(`${t.d} total=${t.total ?? "?"}u basal=${t.basal ?? "?"}u bolus=${t.bolus ?? "?"}u`);
+      }
+    }
+    const bolusByDay = {};
+    if (insulin && Array.isArray(insulin.boluses)) {
+      for (const b of insulin.boluses) {
+        if (!b || typeof b.ts !== "number") continue;
+        const k = DAY_FMT.format(new Date(b.ts));
+        if (!bolusByDay[k]) bolusByDay[k] = { n:0, u:0, c:0, late:0 };
+        const e = bolusByDay[k]; e.n++; e.u += b.u || 0; e.c += b.c || 0;
+        const h = parseInt(HOUR_FMT.format(new Date(b.ts)), 10) % 24;
+        if (h >= 21 || h < 6) e.late++;
+      }
+    }
+    const bolusLines = Object.keys(bolusByDay).sort().map(k => {
+      const e = bolusByDay[k];
+      return `${k} boluses=${e.n} units=${e.u.toFixed(1)} carbs=${Math.round(e.c)} after9pm=${e.late}`;
+    });
 
-    const system = `You are the data assistant inside a family-built insulin tracking app for a child named Hudson, who has type 1 diabetes and uses an Omnipod pump and Dexcom G7 CGM. You answer questions from Hudson's parents (and sometimes Hudson) about his glucose data.
+    // Family dose-calculator log (manual entries, newest first, may be sparse)
+    const doseLines = (Array.isArray(doseLog) ? doseLog : []).slice(0, 60)
+      .map(e => e && `${e.date} ${e.time} meal=${e.mealId} carbs=${e.carbs}g dose=${e.dose}u${e.bg ? ` bg=${e.bg}` : ""}`)
+      .filter(Boolean);
+
+
+    const system = `You are the assistant inside a family-built insulin tracking app for a child named Hudson, who has type 1 diabetes and uses an Omnipod 5 pump and Dexcom G7 CGM. You answer questions from Hudson's parents (and sometimes Hudson himself) about two things:
+
+1. HUDSON'S DATA — his glucose history, patterns, and device change log (provided below).
+2. TYPE 1 DIABETES IN GENERAL — how insulin and glucose work, carbs and food, CGM and pump technology, exercise and T1D, school and sports with T1D, famous athletes with T1D, the history of insulin, terminology (bolus, basal, TIR, honeymoon phase), and similar educational topics. Answer these from your general knowledge, at a level appropriate to whoever seems to be asking — plainly for a kid, more fully for a parent.
+
+If a question mixes both (e.g. "is his overnight pattern normal for kids?"), use both: describe his data, then give general educational context.
 
 DATA (one line per day, local Eastern time; high = readings above ${rangeHigh ?? 180} mg/dL, low = below ${rangeLow ?? 80} mg/dL; ~288 readings = a complete day; overnight = hours outside meal windows):
 ${lines.join("\n")}
@@ -85,13 +120,25 @@ ${lines.join("\n")}
 POD & SENSOR CHANGE LOG (manually logged; may be incomplete):
 ${siteLines.length ? siteLines.join("\n") : "(none logged yet)"}
 
-CONTEXT: Insulin-to-carb ratios: ${JSON.stringify(ratios || {})}. Known history: he was on injections (not the pump) roughly Jul 7-16, 2026; on the pump otherwise. The store has a few small collection gaps; days with n well below 288 are partially recorded — say so rather than over-concluding from them.
+PUMP INSULIN DAILY TOTALS (from Glooko export; updated monthly, may lag recent days):
+${insulinLines.length ? insulinLines.join("\n") : "(no insulin data imported yet)"}
+
+PUMP BOLUS SUMMARY BY DAY (n = bolus count; after9pm = boluses between 9pm and 6am):
+${bolusLines.length ? bolusLines.join("\n") : "(no bolus data imported yet)"}
+
+FAMILY DOSE CALCULATOR LOG (manual entries from the app's calculator; not the pump's record — the pump summary above is authoritative):
+${doseLines.length ? doseLines.join("\n") : "(none logged)"}
+
+CONTEXT: Insulin-to-carb ratios: ${JSON.stringify(ratios || {})}. Known history: he was on injections (not the pump) roughly Jul 7-16, 2026; on the pump otherwise. The store has a few small collection gaps; days with n well below 288 are partially recorded — say so rather than over-concluding from them. Insulin data comes from periodic Glooko exports and typically lags the BG data by days to weeks — if asked about insulin on very recent days, check the last date present and say if it's not covered.
 
 RULES:
-- Answer from the data above. Cite actual numbers and dates. If the data can't answer the question, say so plainly.
+- For data questions, answer from the data above and cite actual numbers and dates. If the data can't answer it, say so plainly.
+- For general T1D questions, answer from your knowledge, accurately. If something is genuinely uncertain or has changed recently (new products, new research), say so rather than guessing.
 - Keep answers short and conversational — a few sentences, plain prose. No headers or bullet walls.
-- NEVER recommend insulin dose changes, ratio changes, basal changes, or specific treatment adjustments. When patterns suggest something is off, describe the pattern and say it's worth discussing with Hudson's endocrinologist.
-- If asked something requiring urgent judgment (current low, symptoms), remind them to act on the CGM and their care plan, not on this chat.`;
+- NEVER recommend insulin dose changes, ratio changes, basal/target changes, or specific treatment adjustments — not for Hudson, not hypothetically, not in general terms that could be applied. Standard patient education (like "juice treats a low") is fine; individualized numbers are not. When patterns suggest something is off, describe the pattern and say it's worth discussing with Hudson's endocrinologist.
+- Decline non-T1D/non-app topics briefly and kindly (homework, general chat, etc.) — this assistant stays on subject.
+- If asked something requiring urgent judgment (current low, symptoms), remind them to act on the CGM and their care plan, not on this chat.
+- If Hudson himself seems to be asking, keep it encouraging and age-appropriate — he's a kid living well with T1D, and questions are a great sign.`;
 
     const msgs = [];
     if (Array.isArray(history)) {
