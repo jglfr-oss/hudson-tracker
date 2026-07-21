@@ -2441,6 +2441,7 @@ function ChatTab({ dexValue }) {
   const [msgs, setMsgs] = useState([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [delivery, setDelivery] = useState(null);   // { id, pushed } of the last send
   const endRef = useRef(null);
   const lastTs = useRef(0);
 
@@ -2498,7 +2499,11 @@ function ChatTab({ dexValue }) {
       const d = await fetch("/api/chat", { method:"POST",
         headers:{ "Content-Type":"application/json" },
         body: JSON.stringify({ name, text, excludeEndpoint }) }).then(r=>r.json());
-      if (d.message) { setMsgs(prev=>[...prev, d.message].slice(-200)); lastTs.current = d.message.ts; }
+      if (d.message) {
+        setMsgs(prev=>[...prev, d.message].slice(-200));
+        lastTs.current = d.message.ts;
+        setDelivery({ id: d.message.id, pushed: d.pushed ?? 0 });
+      }
     } catch { setInput(text); }
     setBusy(false);
   };
@@ -2553,6 +2558,14 @@ function ChatTab({ dexValue }) {
                 borderBottomRightRadius: mine ? 5 : 16, borderBottomLeftRadius: mine ? 16 : 5 }}>
                 {m.text}
               </div>
+              {delivery && delivery.id === m.id && (
+                <div style={{ fontSize:9.5, fontWeight:700, margin:"3px 6px 0",
+                  color: delivery.pushed > 0 ? C.textLt : C.low }}>
+                  {delivery.pushed > 0
+                    ? `\u2713 alerted ${delivery.pushed} phone${delivery.pushed===1?"":"s"}`
+                    : "sent \u2014 no other phones alerted"}
+                </div>
+              )}
             </div>
           );
         })}
