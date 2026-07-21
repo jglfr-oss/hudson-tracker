@@ -2465,7 +2465,14 @@ function ChatTab({ dexValue }) {
     return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
   }, []);
 
-  useEffect(()=>{ endRef.current?.scrollIntoView({ behavior:"smooth" }); }, [msgs]);
+  useEffect(()=>{
+    // Scroll the thread container only — scrollIntoView can drag the whole
+    // page down past the header, which reads as a blank screen on mobile.
+    if (msgs.length && endRef.current?.parentElement) {
+      const box = endRef.current.parentElement;
+      box.scrollTop = box.scrollHeight;
+    }
+  }, [msgs]);
 
   const send = async () => {
     const text = input.trim();
