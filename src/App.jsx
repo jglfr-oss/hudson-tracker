@@ -1957,7 +1957,10 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
 
       {view==="games" && <GamesTab readings={merged}/>}
 
-      {view==="chat" && <ChatTab dexValue={dex?.value}/>}
+      {view==="chat" && <ChatTab dexValue={(() => {
+        const last = (bgHistory||[]).length ? [...bgHistory].sort((a,b)=>b.ts-a.ts)[0] : null;
+        return last && Date.now() - last.ts < 15*60000 ? last.value : null;
+      })()}/>}
 
       {view==="trends" && dataNotice}
       {view==="trends" && !dataNotice && (<>
