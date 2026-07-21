@@ -2482,9 +2482,16 @@ function ChatTab({ dexValue }) {
     if (!text || busy || !name) return;
     setBusy(true); setInput("");
     try {
+      // Identify this device's push subscription so the sender isn't alerted
+      // by their own message. serviceWorker.ready never resolves when no SW is
+      // active (e.g. desktop tabs), so cap the wait — a self-push on one
+      // device beats a send that hangs forever.
       let excludeEndpoint = null;
       try {
-        const reg = await navigator.serviceWorker?.ready;
+        const reg = await Promise.race([
+          navigator.serviceWorker?.ready,
+          new Promise(res => setTimeout(() => res(null), 1200)),
+        ]);
         const sub = await reg?.pushManager?.getSubscription();
         excludeEndpoint = sub?.endpoint || null;
       } catch {}
