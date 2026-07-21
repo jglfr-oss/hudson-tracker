@@ -1892,7 +1892,7 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
       {/* ── Insights / Trends / News / Ask / Endo switch ── */}
       <div style={{ display:"flex", gap:18, marginBottom:16, alignItems:"flex-end",
         overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
-        {[["insights","Insights"],["trends","Trends"],["pulse","News"],["ask","Ask"],["endo","Endo"],["games","Games"]].map(([id,label])=>(
+        {[["insights","Insights"],["trends","Trends"],["chat","Chat"],["pulse","News"],["ask","Ask"],["endo","Endo"],["games","Games"]].map(([id,label])=>(
           <button key={id} type="button" onClick={()=>setView(id)}
             style={{ background:"none", border:"none", padding:"0 0 4px", cursor:"pointer",
               fontFamily:"inherit", fontWeight:800, fontSize:20, whiteSpace:"nowrap", flex:"0 0 auto",
@@ -1903,7 +1903,7 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
         ))}
       </div>
 
-      {view!=="ask" && view!=="pulse" && view!=="endo" && view!=="games" && !loading && (<>
+      {view!=="ask" && view!=="pulse" && view!=="endo" && view!=="games" && view!=="chat" && !loading && (<>
       {/* Period picker */}
       <div style={{ marginBottom:14 }}>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:5, marginBottom:8 }}>
@@ -1956,6 +1956,8 @@ function AnalyticsTab({ bgHistory, ratios, rangeLow, rangeHigh, mealWindows, sit
       {view==="endo" && <EndoTab readings={merged} insulin={insulin} sites={sites} mealWindows={mealWindows}/>}
 
       {view==="games" && <GamesTab readings={merged}/>}
+
+      {view==="chat" && <ChatTab dexValue={dex?.value}/>}
 
       {view==="trends" && dataNotice}
       {view==="trends" && !dataNotice && (<>
@@ -2423,6 +2425,147 @@ function GamesTab({ readings }) {
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+
+// ═══ Family chat ═════════════════════════════════════════════════════════════
+// Shared thread for coordinating on highs and lows. Every message pushes an
+// alert to the other phones (never the sender's own).
+function ChatTab({ dexValue }) {
+  const [name, setName] = useState(() => localStore.get("hud-chat-name", ""));
+  const [msgs, setMsgs] = useState([]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const endRef = useRef(null);
+  const lastTs = useRef(0);
+
+  const load = async (incremental) => {
+    try {
+      const url = incremental && lastTs.current ? `/api/chat?after=${lastTs.current}` : "/api/chat";
+      const d = await fetch(url).then(r=>r.json());
+      if (Array.isArray(d.messages) && d.messages.length) {
+        setMsgs(prev => {
+          const merged = incremental ? [...prev, ...d.messages] : d.messages;
+          const seen = new Set(); const out = [];
+          for (const m of merged) if (m && !seen.has(m.id)) { seen.add(m.id); out.push(m); }
+          return out.slice(-200);
+        });
+        lastTs.current = Math.max(lastTs.current, ...d.messages.map(m=>m.ts));
+      }
+    } catch { /* poll again next tick */ }
+  };
+
+  useEffect(() => {
+    load(false);
+    const t = setInterval(() => { if (document.visibilityState==="visible") load(true); }, 12000);
+    const onVis = () => { if (document.visibilityState==="visible") load(true); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
+  }, []);
+
+  useEffect(()=>{ endRef.current?.scrollIntoView({ behavior:"smooth" }); }, [msgs]);
+
+  const send = async () => {
+    const text = input.trim();
+    if (!text || busy || !name) return;
+    setBusy(true); setInput("");
+    try {
+      let excludeEndpoint = null;
+      try {
+        const reg = await navigator.serviceWorker?.ready;
+        const sub = await reg?.pushManager?.getSubscription();
+        excludeEndpoint = sub?.endpoint || null;
+      } catch {}
+      const d = await fetch("/api/chat", { method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ name, text, excludeEndpoint }) }).then(r=>r.json());
+      if (d.message) { setMsgs(prev=>[...prev, d.message].slice(-200)); lastTs.current = d.message.ts; }
+    } catch { setInput(text); }
+    setBusy(false);
+  };
+
+  if (!name) return (
+    <div style={{ marginBottom:18 }}>
+      <Card>
+        <div style={{ fontWeight:800, fontSize:15, color:C.textDk, marginBottom:6 }}>💬 Family Chat</div>
+        <div style={{ fontSize:12.5, color:C.textMd, lineHeight:1.6, marginBottom:12 }}>
+          Who's this phone? Messages show your name, and everyone else gets an alert.
+        </div>
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+          {["Dad","Mom","Hudson"].map(n=>(
+            <button key={n} type="button"
+              onClick={()=>{ setName(n); localStore.set("hud-chat-name", n); }}
+              style={{ padding:"10px 22px", borderRadius:12, border:"none", background:C.tile,
+                fontFamily:"inherit", fontWeight:800, fontSize:14, color:C.textDk, cursor:"pointer" }}>
+              {n}
+            </button>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+
+  const fmtT = ts => {
+    const d = new Date(ts), now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    const t = d.toLocaleTimeString([], { hour:"numeric", minute:"2-digit" });
+    return sameDay ? t : `${d.toLocaleDateString("en-US",{month:"short",day:"numeric"})} ${t}`;
+  };
+
+  return (
+    <div style={{ marginBottom:18 }}>
+      <div style={{ maxHeight:"46vh", overflowY:"auto", marginBottom:10, paddingRight:2 }}>
+        {msgs.length===0 && (
+          <div style={{ fontSize:12.5, color:C.textLt, textAlign:"center", padding:"24px 0" }}>
+            No messages yet — say something and everyone's phone will buzz.
+          </div>
+        )}
+        {msgs.map(m=>{
+          const mine = m.name === name;
+          return (
+            <div key={m.id} style={{ display:"flex", flexDirection:"column",
+              alignItems: mine ? "flex-end" : "flex-start", marginBottom:10 }}>
+              <div style={{ fontSize:10, color:C.textLt, fontWeight:700, margin:"0 6px 3px" }}>
+                {mine ? fmtT(m.ts) : `${m.name} · ${fmtT(m.ts)}`}
+              </div>
+              <div style={{ maxWidth:"82%", padding:"9px 13px", borderRadius:16, fontSize:13.5,
+                lineHeight:1.45, fontWeight:600, whiteSpace:"pre-wrap", wordBreak:"break-word",
+                background: mine ? C.ravens : C.tile, color: mine ? "#fff" : C.textDk,
+                borderBottomRightRadius: mine ? 5 : 16, borderBottomLeftRadius: mine ? 16 : 5 }}>
+                {m.text}
+              </div>
+            </div>
+          );
+        })}
+        <div ref={endRef}/>
+      </div>
+
+      {typeof dexValue === "number" && (
+        <button type="button" onClick={()=>setInput(i => i ? i : `BG is ${dexValue} right now — `)}
+          style={{ border:"none", background:C.tile, borderRadius:10, padding:"6px 12px",
+            fontFamily:"inherit", fontSize:11, fontWeight:700, color:C.textMd, cursor:"pointer",
+            marginBottom:8 }}>
+          + insert current BG ({dexValue})
+        </button>
+      )}
+
+      <div style={{ display:"flex", gap:8 }}>
+        <input value={input} onChange={e=>setInput(e.target.value)}
+          onKeyDown={e=>{ if(e.key==="Enter") send(); }}
+          placeholder={`Message as ${name}…`}
+          style={{ flex:1, padding:"12px 14px", borderRadius:14, fontSize:14, fontWeight:600,
+            fontFamily:"inherit", border:"none", background:C.tile, color:C.textDk, outline:"none" }}/>
+        <button type="button" onClick={send} disabled={busy||!input.trim()}
+          style={{ width:46, borderRadius:14, border:"none", background:C.ravens, color:"#fff",
+            fontSize:18, cursor:"pointer", opacity: busy||!input.trim() ? 0.5 : 1 }}>↑</button>
+      </div>
+      <div style={{ fontSize:10, color:C.textLt, textAlign:"center", marginTop:8 }}>
+        Everyone with the app gets a push for each message · {name} on this phone{" "}
+        <span onClick={()=>{ localStore.set("hud-chat-name",""); setName(""); }}
+          style={{ color:C.ravens, fontWeight:700, cursor:"pointer" }}>change</span>
+      </div>
     </div>
   );
 }
@@ -3327,6 +3470,7 @@ export default function App() {
     try {
       const open = new URLSearchParams(window.location.search).get("open");
       if (open === "sites" || open === "dose" || open === "log") setSheet(open);
+      if (open === "chat") setView("chat");
       if (open) window.history.replaceState({}, "", window.location.pathname);
     } catch {}
     fetch("/api/bg-store").then(r=>r.json())
